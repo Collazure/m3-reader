@@ -72,6 +72,7 @@ COMMANDS = {
     "import": "导入本地资料",
     "replace": "替换当前本地资料",
     "help": "帮助",
+    "back": "返回上一个页面",
     "quit": "退出",
 }
 
@@ -100,7 +101,7 @@ HELP = """M3 Reader 终端阅读器
   3G             跳到第 3 行          5j / 2k    移动 5 行 / 2 行
   Ctrl+D / Ctrl+U  半页下 / 上        Ctrl+B     上翻一页
   n / N          下一个 / 上一个匹配  `:`        回到命令栏
-  / 查找、? 帮助、空格下翻；不提供 a/i/x/r 等修改源文件的操作。
+  / 查找、? 帮助、空格下翻、Ctrl+O 返回上一个页面。
   阅读区左侧显示绝对行号。
 
 命令栏（Tab 补全，Enter 执行）
@@ -121,6 +122,7 @@ HELP = """M3 Reader 终端阅读器
   page [页号]                阅读《大地巡旅》PDF 对应页的 OCR
   open                       使用系统查看器打开当前图片或 PDF
   import [路径]              导入本地资料；replace [路径] 替换当前本地资料
+  back                       返回上一个打开的页面（阅读区 Ctrl+O）
   help / quit                帮助 / 退出
 
 搜索与查找
@@ -329,6 +331,7 @@ class TerminalLibrary:
         self.results: list[dict] = []
         self.result_rows: list[int | None] = []
         self.results_mode = False
+        self._view_history: list[dict] = []
         self.runs = []
         self.active_run = None
         self.note_draft: list[str] = []
@@ -579,6 +582,10 @@ class TerminalLibrary:
         def _(event):
             self._vim_find_next(True)
 
+        @keys.add("c-o")
+        def _(event):
+            self._go_back()
+
         @keys.add("escape")
         def _(event):
             if self._vim_count:
@@ -609,7 +616,10 @@ class TerminalLibrary:
         self._status_level = level
         self.app.invalidate()
 
-    def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = False) -> None:
+    def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = False,
+              remember: bool = True) -> None:
+        if remember:
+            self._push_view()
         self.viewing_resource = False
         self.results_mode = False
         self.results = []
@@ -619,6 +629,49 @@ class TerminalLibrary:
         self._set_status(title, level)
         if focus:
             self.app.layout.focus(self.reader)
+        self.app.invalidate()
+
+    # -------------------------------------------------------------- 页面历史
+    def _snapshot_view(self) -> dict:
+        return {
+            "text": self.reader.text,
+            "line": self.reader.buffer.document.cursor_position_row + 1,
+            "selected": self.selected,
+            "current_pdf_page": self.current_pdf_page,
+            "viewing_resource": self.viewing_resource,
+            "results": self.results,
+            "result_rows": self.result_rows,
+            "results_mode": self.results_mode,
+            "status_text": self._status_text,
+        }
+
+    def _push_view(self) -> None:
+        self._view_history.append(self._snapshot_view())
+        if len(self._view_history) > 50:
+            del self._view_history[0]
+
+    def _go_back(self) -> None:
+        """Return to the previously opened page (document, result list, help…)."""
+        if self.update_active:
+            self._set_status("更新进行中，完成后再用 back 返回", "status.warn")
+            return
+        if not self._view_history:
+            self._set_status("没有可返回的页面", "status.warn")
+            return
+        view = self._view_history.pop()
+        self.reader.text = view["text"]
+        self.selected = view["selected"]
+        self.current_pdf_page = view["current_pdf_page"]
+        self.viewing_resource = view["viewing_resource"]
+        self.results = view["results"]
+        self.result_rows = view["result_rows"]
+        self.results_mode = view["results_mode"]
+        self._jump_buffer(self.reader, view["line"])
+        self.app.layout.focus(self.reader)
+        if self.results_mode:
+            self._update_result_status()
+        else:
+            self._set_status(f"已返回 · {view['status_text']}", "status.info")
         self.app.invalidate()
 
     # -------------------------------------------------------------- 目录
@@ -808,7 +861,9 @@ class TerminalLibrary:
         area.buffer.cursor_position = area.buffer.document.translate_row_col_to_index(line - 1, 0)
 
     # -------------------------------------------------------------- 打开资源
-    def _open(self, path: Path, line: int = 1):
+    def _open(self, path: Path, line: int = 1, *, remember: bool = True):
+        if remember:
+            self._push_view()
         self.selected = path
         self.current_pdf_page = 1 if path.suffix.lower() in PDF_SUFFIXES else None
         kind = source_kind(path)
@@ -825,10 +880,11 @@ class TerminalLibrary:
             body = f"图片：{resource_id}\n\n输入 open 使用系统查看器查看原图。\n"
             if ocr and ocr.is_file():
                 body += f"\n关联 OCR：{relative_id(ocr)}\n\n" + ocr.read_text(encoding="utf-8", errors="replace")
-            self._show(f"{kind} · {resource_id}", body)
+            self._show(f"{kind} · {resource_id}", body, remember=False)
         elif path.suffix.lower() in PDF_SUFFIXES:
             self._show(f"{kind} · {resource_id}",
-                       f"PDF：{resource_id}\n\n输入 page 页号 阅读对应页 OCR；输入 open 使用系统查看器查看原件。")
+                       f"PDF：{resource_id}\n\n输入 page 页号 阅读对应页 OCR；输入 open 使用系统查看器查看原件。",
+                       remember=False)
         self.viewing_resource = True
         self.app.layout.focus(self.reader)
         self.app.invalidate()
@@ -905,6 +961,8 @@ class TerminalLibrary:
                 self.app.exit()
             elif command in {"help", "?"}:
                 self._show("帮助 · Tab 补全 · ↑↓ 历史 · Ctrl+C 取消更新", HELP)
+            elif command == "back":
+                self._go_back()
             elif command == "find":
                 self._find(rest)
             elif command == "jump":
@@ -1081,8 +1139,9 @@ class TerminalLibrary:
             self._set_status("把光标移到某条搜索结果上再按 Enter", "status.warn")
             return
         item = self.results[index]
+        self._push_view()          # remember the result list before leaving it
         self.results_mode = False
-        self._open(resource_path(item["resource_id"]), int(item["line"]))
+        self._open(resource_path(item["resource_id"]), int(item["line"]), remember=False)
         if item.get("page"):
             self.current_pdf_page = int(item["page"])
         self._set_status(f"已打开 · {item['head']}", "status.ok")
@@ -1106,8 +1165,9 @@ class TerminalLibrary:
         self._last_flush = 0.0
         started = time.monotonic()
         header = (f"更新：{label}\n命令：m3-reader {' '.join(args)}\n"
-                  f"（Ctrl+C 取消；Tab 切到命令栏）\n" + "-" * 60 + "\n")
-        self._show(f"更新中 · {label}", header, level="status.warn", focus=True)
+                  f"（Ctrl+C 取消；Alt+3 切到命令栏）\n" + "-" * 60 + "\n")
+        self._push_view()
+        self._show(f"更新中 · {label}", header, level="status.warn", focus=True, remember=False)
         try:
             self.update_task = await asyncio.create_subprocess_exec(
                 *crawler_command(args), cwd=str(PROJECT_DIR),
@@ -1320,8 +1380,9 @@ class TerminalLibrary:
         start = self._book_pages[page]
         end = min((position for position in self._book_pages.values() if position > start),
                   default=len(self._book_text))
+        self._push_view()
         self._show(f"PDF 第 {page} 页 OCR · 共 {len(self._book_pages)} 页",
-                   self._book_text[start:end])
+                   self._book_text[start:end], remember=False)
         self.current_pdf_page = page
         self.viewing_resource = True
 

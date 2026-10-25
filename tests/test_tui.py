@@ -74,6 +74,7 @@ def test_command_completion():
     assert _completions("update avg f") == ["force"]
     assert _completions("images m") == ["missing"]
     assert "operator" in _completions("preview o")
+    assert "back" in _completions("bac")
     assert _completions("update --mode ") == ["changed", "missing", "force"]
     assert _completions("update avg -m f") == ["force"]
     assert _completions("update --mode=f") == ["force"]
@@ -246,6 +247,47 @@ def test_vim_line_jump_and_find_next(tui):
     tui._vim_find_next(True)
     assert tui.reader.buffer.document.cursor_position_row == 1
     assert "第 2 行" in tui._status_text
+
+
+def test_back_returns_previous_pages(tui):
+    paths = [path for path in tui.files
+             if path.suffix.lower() in {".md", ".txt"} and 0 < path.stat().st_size < 5000][:2]
+    if len(paths) < 2:
+        pytest.skip("需要两个小型文本资源")
+    first, second = paths
+    tui._open(first)
+    first_text = tui.reader.text
+    tui._open(second)
+    assert tui.selected == second
+
+    tui._execute("back")
+    assert tui.selected == first
+    assert tui.reader.text == first_text
+
+    tui._execute("back")
+    assert tui.selected is None
+    assert "终端阅读器" in tui.reader.text
+
+
+def test_back_without_history(tui):
+    tui._execute("back")
+    assert "没有可返回" in tui._status_text
+
+
+def test_back_restores_result_list(tui):
+    path = RESOURCES_DIR / "README.md"
+    resource_id = relative_id(path)
+    items = [{"head": f"1. {resource_id}:1", "body": "  内容",
+              "resource_id": resource_id, "line": 1, "page": None}]
+    tui._show_result_list("测试", items)
+    tui._jump_buffer(tui.reader, 3)
+    tui._open_selected_result()
+    assert not tui.results_mode
+
+    tui._execute("back")
+    assert tui.results_mode
+    assert tui.results == items
+    assert tui.result_rows[2] == 0
 
 
 def test_update_streams_output_and_reports(tui, monkeypatch):
