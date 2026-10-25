@@ -9,4 +9,4 @@ click 命令行工具里，并提供通用抓取接口，方便以后继续扩�
     python prts_crawler.py refresh -m avg      # 只补齐/更新 avg 剧情
 """
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"

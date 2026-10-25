@@ -1,0 +1,57 @@
+name: Build M3 Reader
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -e ".[all]" pyinstaller pillow pytest
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          python -m pytest -q tests/test_activity_timeline.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+      - name: Build and package
+        shell: pwsh
+        run: |
+          ./scripts/build_windows.ps1
+          python scripts/package_installpacks.py --platform windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m3-reader-windows
+          path: |
+            installpacks/windows/*.zip
+            installpacks/SHA256SUMS.txt
+
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -e ".[all]" pyinstaller pytest
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests/test_activity_timeline.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+      - name: Build and package
+        run: |
+          bash scripts/build_ubuntu.sh
+          python scripts/package_installpacks.py --platform ubuntu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m3-reader-ubuntu
+          path: |
+            installpacks/debian/*.tar.gz
+            installpacks/SHA256SUMS.txt

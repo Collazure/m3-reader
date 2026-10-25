@@ -29,6 +29,33 @@ def resource_files() -> Iterator[Path]:
                 yield path
 
 
+def directory_index(directory: Path) -> Path | None:
+    """Choose a module's highest available Markdown index for a tree directory."""
+    root = RESOURCES_DIR.resolve()
+    target = directory.resolve()
+    if not target.is_dir():
+        return None
+    try:
+        parts = target.relative_to(root).parts
+    except ValueError:
+        return None
+
+    def at(folder: Path) -> Path | None:
+        files = sorted((path for path in folder.glob("*.md") if path.is_file()),
+                       key=lambda path: path.name.casefold())
+        for path in files:
+            if "索引" in path.stem or path.stem.casefold() in {"index", "_index"}:
+                return path
+        return next((path for path in files if path.stem.casefold() == "readme"), None)
+
+    current = root
+    for part in parts:
+        current /= part
+        if index := at(current):
+            return index
+    return at(root)
+
+
 def relative_id(path: Path) -> str:
     resolved = path.resolve()
     try:

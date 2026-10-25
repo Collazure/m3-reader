@@ -15,9 +15,10 @@ from pathlib import Path
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, append_opinion,
-                      read_opinions, relative_id, resource_files, resource_path, search_text,
+                      directory_index, read_opinions, relative_id, resource_files, resource_path, search_text,
                       source_kind)
 from .paths import BOOK_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
+from .reading import last_position, position_for, save_position
 
 try:
     from prompt_toolkit import Application
@@ -74,6 +75,7 @@ COMMANDS = {
     "help": "帮助",
     "back": "返回上一个页面",
     "next": "打开本目录的下一个文件",
+    "resume": "继续上次阅读",
     "quit": "退出",
 }
 
@@ -125,6 +127,7 @@ HELP = """M3 Reader 终端阅读器
   import [路径]              导入本地资料；replace [路径] 替换当前本地资料
   back                       返回上一个打开的页面（阅读区 Ctrl+O）
   next                       打开本目录的下一个文件
+  resume                     继续上次阅读（GUI/TUI 共用本地位置）
   help / quit                帮助 / 退出
 
 搜索与查找
@@ -348,6 +351,7 @@ class TerminalLibrary:
         self._last_flush = 0.0
         self._book_text: str | None = None
         self._book_pages: dict[int, int] = {}
+        self._last_reading_save = 0.0
         self.reader.buffer.on_cursor_position_changed += self._reader_cursor_moved
         self._reload_catalog()
         self.reader.text = HELP
@@ -620,6 +624,7 @@ class TerminalLibrary:
 
     def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = False,
               remember: bool = True) -> None:
+        self._save_reading()
         if remember:
             self._push_view()
         self.viewing_resource = False
@@ -660,7 +665,9 @@ class TerminalLibrary:
         if not self._view_history:
             self._set_status("没有可返回的页面", "status.warn")
             return
+        self._save_reading()
         view = self._view_history.pop()
+        self.viewing_resource = False
         self.reader.text = view["text"]
         self.selected = view["selected"]
         self.current_pdf_page = view["current_pdf_page"]
@@ -669,6 +676,7 @@ class TerminalLibrary:
         self.result_rows = view["result_rows"]
         self.results_mode = view["results_mode"]
         self._jump_buffer(self.reader, view["line"])
+        self._save_reading()
         self.app.layout.focus(self.reader)
         if self.results_mode:
             self._update_result_status()
@@ -714,6 +722,7 @@ class TerminalLibrary:
 
         @keys.add("c-q")
         def _(event):
+            self._save_reading()
             event.app.exit()
 
         @keys.add("tab", filter=command_focus)
@@ -852,6 +861,10 @@ class TerminalLibrary:
             else:
                 self.expanded.add(parts)
             self._draw_tree()
+            if index := directory_index(RESOURCES_DIR.joinpath(*parts)):
+                self._open(index)
+                self.app.layout.focus(self.tree)
+                self._set_status(f"目录索引 · {relative_id(index)} · Alt+2 阅读", "status.info")
 
     def _draw_tree(self):
         lines: list[str] = []
@@ -880,13 +893,17 @@ class TerminalLibrary:
         area.buffer.cursor_position = area.buffer.document.translate_row_col_to_index(line - 1, 0)
 
     # -------------------------------------------------------------- 打开资源
-    def _open(self, path: Path, line: int = 1, *, remember: bool = True):
+    def _open(self, path: Path, line: int | None = None, *, remember: bool = True):
+        self._save_reading()
         if remember:
             self._push_view()
+        self.viewing_resource = False
         self.selected = path
         self.current_pdf_page = 1 if path.suffix.lower() in PDF_SUFFIXES else None
         kind = source_kind(path)
         resource_id = relative_id(path)
+        saved_line, saved_page = position_for(path) if line is None or path.suffix.lower() in PDF_SUFFIXES else (1, None)
+        line = line or saved_line
         if path.suffix.lower() in TEXT_SUFFIXES:
             self.reader.text = path.read_text(encoding="utf-8", errors="replace")
             total = self.reader.buffer.document.line_count
@@ -904,7 +921,10 @@ class TerminalLibrary:
             self._show(f"{kind} · {resource_id}",
                        f"PDF：{resource_id}\n\n输入 page 页号 阅读对应页 OCR；输入 open 使用系统查看器查看原件。",
                        remember=False)
+            if saved_page:
+                self.current_pdf_page = saved_page
         self.viewing_resource = True
+        self._save_reading()
         self.app.layout.focus(self.reader)
         self.app.invalidate()
 
@@ -977,6 +997,7 @@ class TerminalLibrary:
             return
         try:
             if command in {"quit", "q"}:
+                self._save_reading()
                 self.app.exit()
             elif command in {"help", "?"}:
                 self._show("帮助 · Tab 补全 · ↑↓ 历史 · Ctrl+C 取消更新", HELP)
@@ -984,6 +1005,15 @@ class TerminalLibrary:
                 self._go_back()
             elif command == "next":
                 self._next_file()
+            elif command == "resume":
+                target = last_position()
+                if not target:
+                    raise ValueError("暂无续读记录；先打开一份资料")
+                path, line, page = target
+                self._open(path, line)
+                if page and path.suffix.lower() in PDF_SUFFIXES:
+                    self.current_pdf_page = page
+                self._set_status(f"继续阅读 · {relative_id(path)}", "status.ok")
             elif command == "find":
                 self._find(rest)
             elif command == "jump":
@@ -1150,6 +1180,24 @@ class TerminalLibrary:
     def _reader_cursor_moved(self, _buffer=None) -> None:
         if self.results_mode:
             self._update_result_status()
+        elif self.viewing_resource and time.monotonic() - self._last_reading_save >= 2:
+            self._save_reading()
+
+    def _save_reading(self) -> None:
+        if not self.viewing_resource or not self.selected:
+            return
+        try:
+            if self.selected.suffix.lower() in TEXT_SUFFIXES:
+                save_position(self.selected,
+                              line=self.reader.buffer.document.cursor_position_row + 1,
+                              quote=self.reader.buffer.document.current_line)
+            elif self.selected.suffix.lower() in PDF_SUFFIXES:
+                save_position(self.selected, page=self.current_pdf_page or 1)
+            else:
+                save_position(self.selected)
+            self._last_reading_save = time.monotonic()
+        except (OSError, ValueError):
+            pass
 
     def _open_selected_result(self) -> None:
         if not self.results_mode or not self.results:
@@ -1199,7 +1247,7 @@ class TerminalLibrary:
             self._set_status(f"启动更新失败：{exc}", "status.error")
             return
 
-        self.app.create_background_task(self._update_ticker(started, label))
+        ticker_task = asyncio.create_task(self._update_ticker(started, label))
         if self.update_cancelled:  # Ctrl+C arrived while the process was starting
             try:
                 self.update_task.terminate()
@@ -1239,6 +1287,7 @@ class TerminalLibrary:
                     pass
             self._set_status(f"更新出错：{exc}", "status.error")
         finally:
+            ticker_task.cancel()
             self.update_task = None
             self.update_active = False
             self.update_cancelled = False
@@ -1406,6 +1455,7 @@ class TerminalLibrary:
                    self._book_text[start:end], remember=False)
         self.current_pdf_page = page
         self.viewing_resource = True
+        self._save_reading()
 
     def _external_open(self):
         if not self.selected:

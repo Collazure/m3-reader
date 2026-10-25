@@ -23,6 +23,8 @@ WORKSPACE_DIR = PROJECT_DIR / "workspace"
 HISTORY_DIR = WORKSPACE_DIR / "history"
 NOTES_FILE = WORKSPACE_DIR / "notes.json"
 OPINIONS_FILE = WORKSPACE_DIR / "更新意见.md"
+READING_FILE = WORKSPACE_DIR / "reading.json"
+APP_ICON_FILE = Path(getattr(sys, "_MEIPASS", PROJECT_DIR)) / "assets" / "icon.png"
 
 
 def crawler_command(args: list[str]) -> list[str]:

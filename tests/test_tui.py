@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 
 import pytest
 
@@ -85,20 +84,13 @@ def test_startup_focus_is_command(tui):
     assert tui._focus_name() == "命令"
 
 
-def test_tab_completes_unique_command_immediately(tui):
-    async def scenario():
-        run = asyncio.create_task(tui.app.run_async())
-        await asyncio.sleep(0.1)
-        tui.command.text = "hel"
-        tui.command.buffer.cursor_position = 3
-        tui._complete_command()
-        await asyncio.sleep(0.1)
-        text = tui.command.text
-        tui.app.exit()
-        await run
-        return text
-
-    assert asyncio.run(scenario()) == "help"
+def test_tab_completes_unique_command_immediately(tui, monkeypatch):
+    chosen = []
+    monkeypatch.setattr(tui.command.buffer, "apply_completion", chosen.append)
+    tui.command.text = "hel"
+    tui.command.buffer.cursor_position = 3
+    tui._complete_command()
+    assert [completion.text for completion in chosen] == ["help"]
 
 
 def test_panes_override_readonly_search_keys(tui):
@@ -321,9 +313,23 @@ def test_page_reads_ocr_from_separated_text_directory(tui):
 
 
 def test_update_streams_output_and_reports(tui, monkeypatch):
-    monkeypatch.setattr("prts_tool.tui.crawler_command",
-                        lambda args: [sys.executable, "-X", "utf8", "-c",
-                                      "print('hello'); print('world')"])
+    class Stream:
+        def __init__(self):
+            self.lines = iter((b"hello\n", b"world\n", b""))
+
+        async def readline(self):
+            return next(self.lines)
+
+    class Process:
+        stdout = Stream()
+
+        async def wait(self):
+            return 0
+
+    async def start(*_args, **_kwargs):
+        return Process()
+
+    monkeypatch.setattr("prts_tool.tui.asyncio.create_subprocess_exec", start)
     asyncio.run(tui._run_update("update", "avg changed"))
     assert "hello" in tui.reader.text
     assert "world" in tui.reader.text
@@ -333,9 +339,30 @@ def test_update_streams_output_and_reports(tui, monkeypatch):
 
 
 def test_update_can_be_cancelled(tui, monkeypatch):
-    monkeypatch.setattr("prts_tool.tui.crawler_command",
-                        lambda args: [sys.executable, "-X", "utf8", "-c",
-                                      "import time; print('started', flush=True); time.sleep(30)"])
+    class Process:
+        def __init__(self):
+            self.ended = asyncio.Event()
+            self.stdout = self
+            self.calls = 0
+
+        async def readline(self):
+            self.calls += 1
+            if self.calls == 1:
+                return b"started\n"
+            await self.ended.wait()
+            return b""
+
+        def terminate(self):
+            self.ended.set()
+
+        async def wait(self):
+            await self.ended.wait()
+            return -1
+
+    async def start(*_args, **_kwargs):
+        return Process()
+
+    monkeypatch.setattr("prts_tool.tui.asyncio.create_subprocess_exec", start)
 
     async def scenario():
         task = asyncio.create_task(tui._run_update("update", "avg changed"))

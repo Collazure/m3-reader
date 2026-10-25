@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import argparse
 import re
 import tarfile
 import zipfile
@@ -26,6 +27,7 @@ EMPTY_DIRS = (
     "workspace/",
 )
 SOURCE_FILES = (
+    "assets/icon.png",
     "pyproject.toml",
     "prts_crawler.py",
     "prts_story_crawler.py",
@@ -38,6 +40,7 @@ SOURCE_FILES = (
     *(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "prts_tool").rglob("*.py"))),
 )
 WINDOWS_FILES = ("bin/windows/m3-reader.exe", "bin/windows/m3-reader-gui.exe")
+UBUNTU_FILES = ("bin/ubuntu/m3-reader", "bin/ubuntu/m3-reader-gui", "bin/ubuntu/m3-reader-gui.desktop")
 
 
 def readme(platform: str) -> bytes:
@@ -91,19 +94,57 @@ def build_ubuntu(target: Path) -> None:
                 archive.addfile(info, source)
 
 
+def build_ubuntu_portable(target: Path) -> None:
+    for name in UBUNTU_FILES[:2]:
+        if not (ROOT / name).is_file():
+            raise FileNotFoundError(f"请先在 Ubuntu 构建程序：{ROOT / name}")
+    with tarfile.open(target, "w:gz") as archive:
+        payload = ("# M3 Reader Ubuntu 便携版\n\n解压后运行 bash scripts/install_ubuntu_portable.sh "
+                   "即可创建应用菜单入口；也可直接运行 bin/ubuntu/m3-reader-gui。\n"
+                   "资料首次使用时下载，本包不含采集正文和个人文件。\n").encode("utf-8")
+        info = tarfile.TarInfo(f"{PREFIX}/README-install.md")
+        info.size = len(payload)
+        info.mode = 0o644
+        archive.addfile(info, io.BytesIO(payload))
+        for name in EMPTY_DIRS:
+            info = tarfile.TarInfo(f"{PREFIX}/{name}")
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            archive.addfile(info)
+        for name in UBUNTU_FILES[:2] + ("assets/icon.png", "scripts/install_ubuntu_portable.sh"):
+            path = ROOT / name
+            info = archive.gettarinfo(str(path), arcname=f"{PREFIX}/{name}")
+            info.mode = 0o755 if name in UBUNTU_FILES or name.endswith(".sh") else 0o644
+            with path.open("rb") as source:
+                archive.addfile(info, source)
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Build data-free M3 Reader install packages")
+    parser.add_argument("--platform", choices=("windows", "ubuntu-source", "ubuntu-portable", "ubuntu", "all"), default="all")
+    platform = parser.parse_args().platform
     output = ROOT / "installpacks"
     windows = output / "windows" / f"m3-reader-{VERSION}-windows-x64-portable.zip"
     ubuntu = output / "debian" / f"m3-reader-{VERSION}-ubuntu-source.tar.gz"
-    windows.parent.mkdir(parents=True, exist_ok=True)
-    ubuntu.parent.mkdir(parents=True, exist_ok=True)
-    build_windows(windows)
-    build_ubuntu(ubuntu)
+    portable = output / "debian" / f"m3-reader-{VERSION}-ubuntu-x64-portable.tar.gz"
+    targets = []
+    if platform in ("windows", "all"):
+        windows.parent.mkdir(parents=True, exist_ok=True)
+        build_windows(windows)
+        targets.append(windows)
+    if platform in ("ubuntu-source", "ubuntu", "all"):
+        ubuntu.parent.mkdir(parents=True, exist_ok=True)
+        build_ubuntu(ubuntu)
+        targets.append(ubuntu)
+    if platform in ("ubuntu-portable", "ubuntu") or (platform == "all" and all((ROOT / name).is_file() for name in UBUNTU_FILES)):
+        portable.parent.mkdir(parents=True, exist_ok=True)
+        build_ubuntu_portable(portable)
+        targets.append(portable)
     checksums = "\n".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(output).as_posix()}"
-                          for path in (windows, ubuntu)) + "\n"
-    (output / "SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
-    print(windows)
-    print(ubuntu)
+                          for path in targets) + "\n"
+    (output / "SHA256SUMS.txt").write_bytes(checksums.encode("utf-8"))
+    for path in targets:
+        print(path)
     return 0
 
 

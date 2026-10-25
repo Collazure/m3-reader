@@ -1,7 +1,7 @@
 # M3 Reader · PRTS 文本采集与阅读
 
 把 [PRTS 明日方舟中文 Wiki](https://prts.wiki) 的各类文本 / 图片抓成便于阅读的本地副本，
-纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.6.0。
+纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.7.0。
 
 资源已迁入 [resources/](resources/README.md)。其他设备安装包位于 [installpacks/](installpacks/README.md)。GUI / TUI 的安装与使用见 [资料终端说明](docs/APP_README.md)；需求记录见 [需求记录](docs/REQUIREMENTS.md)，
 调研事实及待验证事项见 [已知信息](docs/KNOWN_INFO.md)，
@@ -587,6 +587,9 @@ CLI 会自动发现；同时在本 README 的模块表、输出树和 `CHANGELOG
 ### 8.3 版本日志
 
 完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。最近更新：
+
+* **2.7.0（2026-10-26）**：GUI 菜单、只读 Vim 与可选命令栏；GUI/TUI 共用
+  目录索引与本地续读记录；双端构建及最小安装包同步。采集目录与更新方式不变。
 
 * **2.6.0（2026-10-25）**：泰拉年表接入 `activity` 采集器并输出到
   `prts_text/泰拉年表.txt`；《大地巡旅》页面图与 OCR 文本分存 `images/`、`text/`，

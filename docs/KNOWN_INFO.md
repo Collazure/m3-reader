@@ -1,6 +1,6 @@
 # 已知信息与待验证事项
 
-文档版本：1.4；最近核实：2026-10-25。
+文档版本：1.5；最近核实：2026-10-26。
 维护规则：记录证据位置和核实日期；实现后更新状态，区分现状、设计和待验证事项。
 
 ## 已核实事实
@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.6.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.7.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -38,6 +38,9 @@
 | K29 | TUI 支持 Alt 焦点、单参数命令两步提示、两行搜索结果 Enter 打开、阅读区只读 vim 移动；TUI/GUI 均显示绝对行号 | prts_tool/tui.py、gui.py；tests/test_tui.py、tests/test_gui_layout.py |
 | K30 | TUI `back` / 阅读区 `Ctrl+O` 返回上一个页面；页面栈保存文本、行号、选中资源、结果列表与 OCR 页码，最多 50 层 | prts_tool/tui.py；更新进行中拒绝返回，避免与流式输出冲突 |
 | K31 | 泰拉年表由 activity 采集器顺带抓取并写到 prts_text/泰拉年表.txt；TUI `next` 打开同目录下一个文件；大地巡旅页面图与文本分存 | prts_tool/collectors/activity.py、ocr_book.py、tui.py；tests/test_activity_timeline.py、test_resource_paths.py、test_tui.py |
+| K32 | 参考阅读器 ArkPlots-APP_Release 有本地阅读记录与前后导航；M3 Reader 已借鉴为共用 `reading.json`、续读和 GUI 前后导航 | reference/ArkPlots-APP_Release；prts_tool/reading.py、gui.py、tui.py；2026-10-26 |
+| K33 | GUI/TUI 点击目录自动打开最高层合适索引，GUI 命令栏可独立于只读 Vim 开关隐藏 | prts_tool/library.py、gui.py、tui.py；tests/test_reading.py、test_gui_layout.py |
+| K34 | Windows 与 Ubuntu GUI 共用 gui.py，差异仅在启动与打包脚本；图标放在 assets/icon.png | prts_tool/gui.py、paths.py、scripts/build_windows.ps1、build_ubuntu.sh；Ubuntu 实机显示仍待验证 |
 
 ## 待实现 / 待验证
 

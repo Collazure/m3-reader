@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-程序版本：2.6.0。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
+程序版本：2.7.0。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
@@ -65,8 +65,17 @@ GUI 左侧目录树点击打开文本、长图或 PDF。文本可用 `Ctrl+F` �
 `Ctrl+Shift+F` 全局搜索，双击命中可打开文件并定位行。《大地巡旅》OCR 命中可打开 PDF
 对应页。文本默认自动换行，可用工具栏开关切换，并用 `Ctrl+滚轮` 缩放字体。
 文本阅读器左侧显示绝对行号，当前行号高亮。图片使用 `Ctrl+滚轮` 缩放，PDF 顶部输入页码跳转。
-启动时右侧的「本地更新意见」和「变动栏」默认隐藏；顶部工具栏的「变动栏」可勾选
-打开逐行更新历史，「更新意见」按钮打开意见栏。
+启动时右侧的「本地更新意见」和「变动栏」默认隐藏。顶部菜单左侧依次是「导入」
+（更新、下载图片、导入或替换资料）、「阅读」、「工具」（意见与变动）、
+「视图」（自动换行、Vim 与命令栏）和「帮助」；文件内搜索、全局搜索及程序版本在右侧。
+「工具 → 变动栏」打开逐行更新历史。单击目录时会打开该目录合适的最高层索引。
+GUI 文本阅读支持只读 Vim：h/j/k/l、0/$、w/b、gg/G、数字前缀、Ctrl+D/U/B、
+/ 搜索、n/N 和 :行号。按 Ctrl+L 可显示或隐藏底部命令栏；隐藏后 Vim 阅读仍可使用。
+命令栏中 Tab 补全命令名，↑/↓ 浏览已执行命令。
+命令栏支持 find/search/jump/update/preview/images/history/diff/notes/note/save/page/
+open/import/replace/resume/next/prev/back/help/quit。阅读位置保存在本地
+`workspace/reading.json`，可由「阅读 → 继续阅读」或 `resume` 回到上次的位置。
+程序图标使用项目 `assets/icon.png`。
 
 更新区可选择模块与 changed/missing/force，先“预览”或点击“更新”。点击更新会选择
 “纯文本”（当前模块）或“完整资料”（全部可采集文本，随后下载 terra 图片）。
@@ -115,7 +124,7 @@ TUI 左侧目录限宽，右侧阅读区占余下宽度，阅读区左侧显示�
 ## 平台检查
 
 独立可执行程序在各自系统上构建，运行时不需要用户手动输入 Python 命令。
-构建机先安装 `.[all]` 与 `pyinstaller`，然后运行：
+构建机先安装 `.[all]` 与 `pyinstaller`（Windows 图标转换还需 `pillow`），然后运行：
 
 ```powershell
 # Windows 构建机
@@ -134,8 +143,9 @@ Windows 双击 `bin/windows/m3-reader-gui.exe`，Ubuntu 双击或从应用菜单
 与 `workspace/`，并让 GUI 的更新功能找到同目录 CLI。
 
 Windows 上已验证 GUI 初始化、文本、图片及 454 页 PDF 打开与页码定位，并验证 TUI 启动。
-Ubuntu 启动脚本和源码使用跨平台路径及 Qt / prompt_toolkit API；尚需在 Ubuntu 实机验证
-桌面会话、字体和系统 PDF 查看器。没有图形桌面时可继续使用 CLI/TUI。
+Windows 与 Ubuntu 使用同一套 GUI/TUI 源码；Ubuntu 构建由仓库工作流执行，
+安装旧版的设备需安装 2.7.0 才能看到新菜单。Ubuntu 实机的桌面会话、字体与系统查看器
+仍待验证。没有图形桌面时可继续使用 CLI/TUI。
 
 
 

@@ -3,10 +3,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest_tmp/
 .venv/
 venv/
 build/
 dist/
+.build-deps/
 
 # 采集数据与本地资料：体积大、可重新生成，不属于工程代码
 /resources/collected/
@@ -19,6 +21,7 @@ dist/
 /workspace/notes.json
 /workspace/update.lock
 /workspace/更新意见.md
+/workspace/reading.json
 
 # 构建 / 发布产物
 /bin/

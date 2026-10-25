@@ -28,6 +28,7 @@ Name=M3 Reader
 Comment=阅读和更新剧情资料
 Exec="$gui_exec"
 Path=$project_root
+Icon=$project_root/assets/icon.png
 Terminal=false
 Categories=Office;Utility;
 EOF
