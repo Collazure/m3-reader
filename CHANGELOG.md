@@ -4,6 +4,20 @@
 每次改采集器 / 加模块 / 清理旧数据时，请在这里补一条，并同步更新
 `README_剧情爬虫.md` 的「维护、已知坑与版本日志」。
 
+## 2.5.2 — 2026-10-25
+
+* TUI 命令栏重做：支持 Tab 补全、↑/↓ 翻历史、Esc 返回目录；未知命令给出相近建议，
+  失败按 info / ok / warn / error 级别显示在状态栏，不再只闪一下。
+* TUI 更新任务显示实时进度（用时、输出行数、最后一行），Ctrl+C 可取消；
+  `update` / `preview` / `images` 接受模块、模式、`--force` / `--missing` / `--dry-run`
+  以及 `-m` / `--mode` 写法。打开文件后焦点进入阅读区，搜索、历史、差异、页码等命令
+  增加参数与范围提示。
+* GUI 启动时默认隐藏「本地更新意见」和「变动栏」；顶部工具栏新增可勾选的「变动栏」开关，
+  「更新意见」按钮可随时打开意见栏。
+* 外部查看器与更新子进程继续使用 Windows / Linux 双端实现：Windows 走 `os.startfile`，
+  Linux 依次尝试 `xdg-open`、`gio open`；取消更新使用跨平台的 `terminate()`。
+* 新增 `tests/test_tui.py` 与 `tests/test_gui_layout.py`，覆盖命令解析、补全、反馈与侧栏开关。
+
 ## 2.5.1 — 2026-10-25
 
 * 新增免安装 CLI 启动器：`bash scripts/install_cli.sh` 在 `~/.local/bin` 建立

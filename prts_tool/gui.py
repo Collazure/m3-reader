@@ -275,6 +275,7 @@ class MainWindow(QMainWindow):
 
     def make_toolbar(self):
         bar = QToolBar("操作")
+        self.toolbar = bar
         self.addToolBar(bar)
         bar.addWidget(QLabel("  M3 Reader / 资料终端   "))
         self.find_input = QLineEdit()
@@ -306,7 +307,8 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.images_button)
         bar.addAction("导入本地资料", self.import_file)
         bar.addAction("替换当前本地资料", self.replace_file)
-        bar.addAction("更新意见", lambda: (self.notes_dock.show(), self.opinions_edit.setFocus()))
+        self.notes_toolbar_action = bar.addAction(
+            "更新意见", lambda: (self.notes_dock.show(), self.opinions_edit.setFocus()))
         wrap = QAction("自动换行", self)
         wrap.setCheckable(True)
         wrap.setChecked(True)
@@ -341,7 +343,22 @@ class MainWindow(QMainWindow):
         self.history_tree = QTreeWidget()
         self.history_tree.setHeaderLabels(["最近更新 · 双击差异", "变化"])
         self.history_tree.itemDoubleClicked.connect(self.open_history_item)
-        self._dock("逐行更新历史", self.history_tree, Qt.DockWidgetArea.RightDockWidgetArea)
+        self.history_dock = self._dock("变动栏 · 逐行更新历史", self.history_tree,
+                                       Qt.DockWidgetArea.RightDockWidgetArea)
+        self.history_dock.hide()
+        self.history_action = QAction("变动栏", self)
+        self.history_action.setCheckable(True)
+        self.history_action.setChecked(False)
+        self.history_action.setToolTip("打开或关闭逐行更新历史")
+        self.history_action.triggered.connect(self.set_history_visible)
+        self.toolbar.insertAction(self.notes_toolbar_action, self.history_action)
+        self.history_dock.visibilityChanged.connect(self.history_action.setChecked)
+
+    def set_history_visible(self, visible: bool):
+        self.history_dock.setVisible(visible)
+        if visible:
+            self.history_dock.raise_()
+            self.history_tree.setFocus()
 
     def make_notes_dock(self):
         panel = QWidget()
@@ -358,6 +375,7 @@ class MainWindow(QMainWindow):
             row.addWidget(button)
         layout.addLayout(row)
         self.notes_dock = self._dock("本地更新意见", panel, Qt.DockWidgetArea.RightDockWidgetArea)
+        self.notes_dock.hide()
         save = QAction("保存更新意见", self)
         save.setShortcut("Ctrl+S")
         save.triggered.connect(self.save_opinions)

@@ -1,7 +1,7 @@
 # M3 Reader · PRTS 文本采集与阅读
 
 把 [PRTS 明日方舟中文 Wiki](https://prts.wiki) 的各类文本 / 图片抓成便于阅读的本地副本，
-纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.5.1。
+纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.5.2。
 
 资源已迁入 [resources/](resources/README.md)。其他设备安装包位于 [installpacks/](installpacks/README.md)。GUI / TUI 的安装与使用见 [资料终端说明](docs/APP_README.md)；需求记录见 [需求记录](docs/REQUIREMENTS.md)，
 调研事实及待验证事项见 [已知信息](docs/KNOWN_INFO.md)，
@@ -577,6 +577,10 @@ CLI 会自动发现；同时在本 README 的模块表、输出树和 `CHANGELOG
 ### 8.3 版本日志
 
 完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。最近更新：
+
+* **2.5.2（2026-10-25）**：TUI 命令栏支持 Tab 补全、↑↓ 历史和 Esc 返回；更新显示
+  实时进度并可 `Ctrl+C` 取消，错误按级别提示。GUI 启动时默认隐藏更新意见和变动栏，
+  顶部工具栏新增「变动栏」开关。
 
 * **2.5.1（2026-10-25）**：新增免安装 CLI 启动器 `scripts/install_cli.sh`
   （`~/.local/bin` 软链接，不依赖 pip/虚拟环境），命令行帮助统一显示 `m3-reader`；
