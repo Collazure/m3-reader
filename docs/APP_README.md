@@ -17,7 +17,7 @@ bash scripts/install_cli.sh
 （需要 `click`，Ubuntu 可 `sudo apt install python3-click`）；
 `M3_READER_PYTHON` 可指定解释器，`M3_READER_HOME` 可指定项目根。
 
-需要隔离依赖或使用 TUI 时，再建立虚拟环境并安装可选依赖：
+需要隔离依赖时，可再建立虚拟环境并安装可选依赖：
 
 ```bash
 python -m venv .venv
@@ -26,6 +26,29 @@ python -m venv .venv
 ```
 
 GUI 基于 PySide6，TUI 基于 prompt_toolkit。原有 `python prts_crawler.py` 入口继续可用。
+
+### Ubuntu 依赖
+
+本机使用的系统组件（一次性安装）：
+
+```bash
+sudo apt install python3-click python3-prompt-toolkit \
+  python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets \
+  python3-pyside6.qtsvg python3-pyside6.qtnetwork \
+  python3-pyside6.qtpdf python3-pyside6.qtpdfwidgets \
+  tesseract-ocr tesseract-ocr-chi-sim poppler-utils fonts-noto-cjk
+```
+
+| 组件 | 用途 |
+| --- | --- |
+| `python3-click` | CLI 采集命令 |
+| `python3-pyside6.qtcore/qtgui/qtwidgets/qtsvg/qtnetwork/qtpdf/qtpdfwidgets` | GUI 与 PDF 阅读（Qt 包按模块拆分，QtPdf 缺失时 GUI 会启动失败） |
+| `python3-prompt-toolkit` | TUI 资料终端 |
+| `tesseract-ocr` + `tesseract-ocr-chi-sim` | 《大地巡旅》OCR（中文） |
+| `poppler-utils` | `pdftoppm` / `pdftotext`，OCR 与 PDF 检查 |
+| `fonts-noto-cjk` | 中文显示；GUI 首选 `Maple Mono NF CN`，未安装时回退到 Noto |
+| `python3-venv`、`python3-pip` | 可选，隔离环境 |
+| `pyinstaller` | 可选，重新打包 `bin/` 与 `installpacks/` |
 
 给其他设备使用的最小包见项目根目录 `installpacks/README.md`。Windows 包解压后双击
 `install_windows.cmd` 即可安装并创建桌面、开始菜单快捷方式；也可直接运行便携版 GUI。

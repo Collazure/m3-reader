@@ -96,6 +96,8 @@ m3-reader tui                      # TUI 资料终端（需要 prompt_toolkit）
 > （依赖 `click`；Ubuntu 可 `sudo apt install python3-click`），
 > 也可用 `M3_READER_PYTHON` 指定解释器、`M3_READER_HOME` 指定项目根。
 > `m3-reader-gui` 等价于 `m3-reader gui`。原来的 `python prts_crawler.py …` 仍然可用。
+> Ubuntu 所需 apt 依赖（QtPdf、prompt_toolkit、tesseract、poppler、中文字体等）
+> 见[资料终端说明](docs/APP_README.md)的「Ubuntu 依赖」。
 
 | 文件 | 说明 |
 | --- | --- |

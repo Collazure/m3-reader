@@ -12,6 +12,8 @@
   `M3_READER_PYTHON` 可指定解释器。
 * 命令行帮助的用法行统一显示为 `m3-reader`；README 与界面文档中的启动示例改为
   `m3-reader …`。
+* 记录 Ubuntu 运行依赖：PySide6 的 QtPdf / QtPdfWidgets 与 QtNetwork、prompt_toolkit、
+  tesseract（chi_sim）、poppler、中文字体；GUI 与 TUI 已在本机完成导入和启动烟测。
 * `install_ubuntu.sh` 在没有可用 venv/pip 时回退到免安装启动器。
 
 ## 2.5.0 — 2026-10-25
