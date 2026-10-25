@@ -78,6 +78,8 @@ def test_command_completion():
     assert _completions("update --mode ") == ["changed", "missing", "force"]
     assert _completions("update avg -m f") == ["force"]
     assert _completions("update --mode=f") == ["force"]
+    assert _completions("search --scope lo") == ["local"]
+    assert "size" in _completions("font s")
 
 
 def test_startup_focus_is_command(tui):

@@ -14,8 +14,8 @@ from pathlib import Path
 
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments
-from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, append_opinion,
-                      directory_index, read_opinions, relative_id, resource_files, resource_path, search_text,
+from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, SEARCH_SCOPES, TEXT_SUFFIXES, append_opinion,
+                      directory_index, parse_search_request, read_opinions, relative_id, resource_files, resource_path, search_text,
                       source_kind)
 from .paths import BOOK_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
 from .reading import last_position, position_for, save_position
@@ -56,6 +56,7 @@ PROMPT_COMMANDS = {
 COMMANDS = {
     "find": "当前文件查找",
     "search": "全库搜索",
+    "font": "查看终端字号设置说明",
     "go": "打开搜索结果",
     "jump": "跳到当前文本行号",
     "update": "更新采集内容",
@@ -109,7 +110,9 @@ HELP = """M3 Reader 终端阅读器
 
 命令栏（Tab 补全，Enter 执行）
   find [词语]                当前文件查找；省略词语时提示 “find:”
-  search [词语]              全库搜索；省略词语时提示 “search:”
+  search [词语]              全库搜索；可用 search --scope local 词语 限定范围
+                             范围：all / collected / local / ocr
+  font size [字号]           终端字号由终端程序设置；GUI 可直接使用此命令
   jump [行号]                跳到当前文本的指定行
   go [序号]                  打开上一次搜索的结果
   update [模块] [模式] [--dry-run]
@@ -273,6 +276,24 @@ class CommandCompleter(Completer):
             return
         command, _, rest = stripped.partition(" ")
         command = command.casefold()
+        if command == "font":
+            parts = rest.split()
+            prefix = "" if rest.endswith(" ") else (parts[-1] if parts else "")
+            options = ([("size", "字号命令")] if not parts or (len(parts) == 1 and not rest.endswith(" "))
+                       else [(str(size), "GUI 字号") for size in (12, 14, 16, 18, 20)])
+            yield from self._options(prefix, options)
+            return
+        if command == "search":
+            args = rest.split()
+            if rest.startswith("--scope"):
+                if len(args) == 1 and not rest.endswith(" "):
+                    yield from self._options(args[0], [("--scope", "限定来源")])
+                elif len(args) <= 2 and (rest.endswith(" ") or len(args) == 2):
+                    prefix = "" if rest.endswith(" ") else args[-1]
+                    yield from self._options(prefix, [(scope, "检索来源") for scope in sorted(SEARCH_SCOPES)])
+            elif rest.startswith("-") and " " not in rest:
+                yield from self._options(rest, [("--scope", "限定来源")])
+            return
         if command in {"update", "preview", "images"}:
             args = rest.split()
             prefix = "" if rest.endswith(" ") else (args[-1] if args else "")
@@ -1023,7 +1044,12 @@ class TerminalLibrary:
                     raise ValueError("请输入搜索词")
                 if self.search_running:
                     raise ValueError("已有搜索在运行，请稍候")
+                parse_search_request(rest)
                 self.app.create_background_task(self._search(rest))
+            elif command == "font":
+                if not re.fullmatch(r"size\s+\d+(?:\.\d+)?", rest):
+                    raise ValueError("用法：font size 16")
+                self._set_status("TUI 字号由终端程序控制；请在终端设置中更改字体大小", "status.info")
             elif command == "go":
                 self._go(rest)
             elif command in {"update", "preview", "images"}:
@@ -1105,11 +1131,12 @@ class TerminalLibrary:
         self._set_status(f"已跳到第 {line} / {total} 行", "status.ok")
 
     async def _search(self, term: str):
+        query, scope = parse_search_request(term)
         self.search_running = True
-        self.last_find = term
-        self._set_status(f"正在搜索全部资源：{term} …", "status.warn")
+        self.last_find = query
+        self._set_status(f"正在搜索 {scope}：{query} …", "status.warn")
         try:
-            hits = await asyncio.to_thread(search_text, term, limit=200)
+            hits = await asyncio.to_thread(search_text, query, limit=200, scope=scope)
         except Exception as exc:
             self._set_status(f"搜索失败：{exc}", "status.error")
             return
@@ -1118,7 +1145,7 @@ class TerminalLibrary:
         self.search_hits = hits
         items = []
         for index, hit in enumerate(hits, 1):
-            head = f"{index:>4}. {hit.resource_id}:{hit.line}"
+            head = f"{index:>4}. {'[文件名] ' if hit.kind == 'title' else ''}{hit.resource_id}:{hit.line}"
             if hit.page:
                 head += f" · PDF 第 {hit.page} 页"
             items.append({
@@ -1129,10 +1156,10 @@ class TerminalLibrary:
                 "page": hit.page,
             })
         if items:
-            title = (f"搜索：{term} · {len(items)} 条 · ↑↓ 选择 · Enter 打开 · 输入字符返回命令")
+            title = (f"搜索：{query}（{scope}）· {len(items)} 条 · ↑↓ 选择 · Enter 打开")
             self._show_result_list(title, items, level="status.ok")
         else:
-            self._show_result_list(f"搜索：{term} · 没有匹配 · 输入字符返回命令", [],
+            self._show_result_list(f"搜索：{query} · 没有匹配；试试短词或其他范围", [],
                                    level="status.warn")
 
     def _go(self, rest: str):

@@ -10,7 +10,7 @@ from pathlib import Path
 from . import __version__
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments, update_command_sequence
-from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, read_opinions,
+from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, parse_search_request, read_opinions,
                       relative_id, resource_files, resource_path, search_text,
                       source_kind, write_opinions)
 from .paths import APP_ICON_FILE, BOOK_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
@@ -24,7 +24,7 @@ try:
     from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QHBoxLayout,
                                    QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-                                   QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
+                                   QTabWidget, QTextBrowser, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
 except ImportError as exc:  # pragma: no cover - tested with the optional Qt runtime
     raise SystemExit("GUI 需要 PySide6。请运行 python -m pip install PySide6 PySide6-Addons") from exc
@@ -37,7 +37,7 @@ QToolBar, QMenuBar, QStatusBar { background: #202a30; border-bottom: 1px solid #
 QMenu { background: #202a30; border: 1px solid #688a71; padding: 5px; }
 QMenu::item { padding: 5px 22px; }
 QMenu::item:selected { background: #385246; color: #f0f9f9; }
-QTreeWidget, QListWidget, QPlainTextEdit, QLineEdit, QComboBox { background: #1f2329; color: #a8cfa7; border: 1px solid #41534b; selection-background-color: #40536a; selection-color: #f0f9f9; }
+QTreeWidget, QListWidget, QPlainTextEdit, QTextBrowser, QLineEdit, QComboBox { background: #1f2329; color: #a8cfa7; border: 1px solid #41534b; selection-background-color: #40536a; selection-color: #f0f9f9; }
 QTreeWidget::item, QListWidget::item { padding: 3px; }
 QPushButton { background: #29383a; color: #cce08c; border: 1px solid #688a71; padding: 5px 10px; }
 QPushButton:hover { background: #3a5547; }
@@ -54,18 +54,19 @@ QScrollBar::handle { background: #4f695b; }
 class SearchThread(QThread):
     ready = Signal(list)
 
-    def __init__(self, query: str):
+    def __init__(self, query: str, scope: str = "all"):
         super().__init__()
         self.query = query
+        self.scope = scope
 
     def run(self):
-        self.ready.emit(search_text(self.query, limit=10000))
+        self.ready.emit(search_text(self.query, limit=1000, scope=self.scope))
 
 
 class CommandLine(QLineEdit):
     """Optional GUI command input with terminal-like history and Tab completion."""
 
-    COMMANDS = ("find", "search", "jump", "update", "preview", "images", "history",
+    COMMANDS = ("find", "search", "jump", "font", "update", "preview", "images", "history",
                 "diff", "notes", "note", "save", "page", "open", "import", "replace",
                 "resume", "next", "prev", "back", "help", "quit")
 
@@ -156,6 +157,10 @@ class TextReader(QPlainTextEdit):
         return 14 + self.fontMetrics().horizontalAdvance("9") * digits
 
     def _margin(self, *_):
+        if getattr(self, "formatted", False):
+            self.setViewportMargins(0, 0, 0, 0)
+            self.line_area.hide()
+            return
         self.setViewportMargins(self.line_width(), 0, 0, 0)
         self.line_area.setGeometry(0, self.contentsRect().top(),
                                    self.line_width(), self.contentsRect().height())
@@ -290,6 +295,160 @@ class TextReader(QPlainTextEdit):
         self.ensureCursorVisible()
 
 
+class MarkdownBrowser(QTextBrowser):
+    """Formatted Markdown with the same read-only navigation keys as text."""
+
+    def __init__(self, owner):
+        super().__init__(owner)
+        self.owner = owner
+        self._count = ""
+        self._pending_g = False
+        self.setOpenLinks(False)
+        self.setReadOnly(True)
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            steps = event.angleDelta().y() / 120
+            if steps:
+                self.owner.set_reader_font_size(self.font().pointSizeF() + steps)
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+    def keyPressEvent(self, event):
+        if not self.owner.vim_enabled:
+            super().keyPressEvent(event)
+            return
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_D, Qt.Key.Key_U, Qt.Key.Key_B):
+            step = 40 if event.key() == Qt.Key.Key_B else 20
+            cursor = self.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Down if event.key() == Qt.Key.Key_D else QTextCursor.MoveOperation.Up,
+                                QTextCursor.MoveMode.MoveAnchor, step)
+            self.setTextCursor(cursor)
+            self.ensureCursorVisible()
+            return
+        if event.modifiers() not in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ShiftModifier):
+            super().keyPressEvent(event)
+            return
+        char = event.text()
+        if char.isdigit():
+            if char == "0" and not self._count:
+                self.moveCursor(QTextCursor.MoveOperation.StartOfLine)
+            else:
+                self._count = (self._count + char)[-5:]
+            return
+        count = min(int(self._count or "1"), 100000)
+        if self._pending_g:
+            self._pending_g = False
+            if char == "g":
+                block = self.document().findBlockByNumber(max(0, int(self._count or "1") - 1))
+                self.setTextCursor(QTextCursor(block) if block.isValid() else QTextCursor(self.document()))
+                self._count = ""
+                return
+        movement = {"h": QTextCursor.MoveOperation.Left, "j": QTextCursor.MoveOperation.Down,
+                    "k": QTextCursor.MoveOperation.Up, "l": QTextCursor.MoveOperation.Right,
+                    "w": QTextCursor.MoveOperation.NextWord, "b": QTextCursor.MoveOperation.PreviousWord,
+                    "$": QTextCursor.MoveOperation.EndOfLine}.get(char)
+        if movement is not None:
+            cursor = self.textCursor()
+            cursor.movePosition(movement, QTextCursor.MoveMode.MoveAnchor, 1 if char == "$" else count)
+            self.setTextCursor(cursor)
+            self.ensureCursorVisible()
+        elif char == "g":
+            self._pending_g = True
+            return
+        elif char == "G":
+            if self._count:
+                block = self.document().findBlockByNumber(max(0, int(self._count) - 1))
+                if block.isValid():
+                    self.setTextCursor(QTextCursor(block))
+            else:
+                self.moveCursor(QTextCursor.MoveOperation.End)
+        elif char in {"/", ":"}:
+            self.owner.vim_prompt.emit(char)
+        elif char in {"n", "N"}:
+            self.owner.vim_find.emit(char == "N")
+        else:
+            super().keyPressEvent(event)
+        self._count = ""
+
+
+class MarkdownReader(TextReader):
+    link_activated = Signal(QUrl)
+    source_requested = Signal()
+
+    def __init__(self, path: Path):
+        super().__init__(path)
+        self.browser = MarkdownBrowser(self)
+        self.browser.setFont(self.font())
+        self.browser.document().setBaseUrl(QUrl.fromLocalFile(str(path.parent.resolve()) + "/"))
+        self.browser.document().setDefaultStyleSheet(
+            "h1,h2,h3 { color: #cce08c; margin-top: 16px; } "
+            "a { color: #8cd0d3; } blockquote { color: #a8b9a7; margin-left: 18px; } "
+            "code,pre { color: #d5e6c7; background-color: #29383a; }")
+        self.browser.setMarkdown(self.toPlainText())
+        self.browser.anchorClicked.connect(self.link_activated)
+        self.formatted = False
+        self.set_formatted(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "browser"):
+            self.browser.setGeometry(self.rect())
+
+    def set_formatted(self, enabled: bool, *, focus: bool = True):
+        self.formatted = enabled
+        self._margin()
+        if enabled:
+            self.browser.setGeometry(self.rect())
+            self.browser.show()
+            self.browser.raise_()
+            if focus:
+                self.browser.setFocus()
+        else:
+            self.browser.hide()
+            if focus:
+                self.setFocus()
+
+    def setFocus(self, *args):
+        if getattr(self, "formatted", False):
+            self.browser.setFocus(*args)
+        else:
+            super().setFocus(*args)
+
+    def set_reader_font_size(self, size: float):
+        size = max(8, min(40, size))
+        font = self.font()
+        font.setPointSizeF(size)
+        self.setFont(font)
+        self.browser.setFont(font)
+        self._margin()
+        self.line_area.update()
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            steps = event.angleDelta().y() / 120
+            if steps:
+                self.set_reader_font_size(self.font().pointSizeF() + steps)
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+    def find(self, text, flags=QTextDocument.FindFlag(0)):
+        return self.browser.find(text, flags) if self.formatted else super().find(text, flags)
+
+    def moveCursor(self, operation, mode=QTextCursor.MoveMode.MoveAnchor):
+        if self.formatted:
+            self.browser.moveCursor(operation, mode)
+        else:
+            super().moveCursor(operation, mode)
+
+    def jump(self, line: int):
+        self.source_requested.emit()
+        self.set_formatted(False)
+        super().jump(line)
+
+
 class ImageReader(QScrollArea):
     def __init__(self, path: Path):
         super().__init__()
@@ -373,17 +532,27 @@ class MainWindow(QMainWindow):
         self._position_timer.setInterval(750)
         self._position_timer.timeout.connect(self._save_current_position)
         self.wrap_enabled = True
+        self.markdown_formatted = True
+        self.reader_font_size = 14
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["资源目录"])
         self.tree.setExpandsOnDoubleClick(False)
         self.tree.itemClicked.connect(self.click_tree_item)
         self.tree.itemDoubleClicked.connect(self.open_tree_item)
+        tree_panel = QWidget()
+        tree_layout = QVBoxLayout(tree_panel)
+        tree_layout.setContentsMargins(4, 4, 4, 4)
+        self.tree_filter = QLineEdit()
+        self.tree_filter.setPlaceholderText("筛选目录或文件名…")
+        self.tree_filter.textChanged.connect(self.filter_tree)
+        tree_layout.addWidget(self.tree_filter)
+        tree_layout.addWidget(self.tree)
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
         split = QSplitter()
-        split.addWidget(self.tree)
+        split.addWidget(tree_panel)
         split.addWidget(self.tabs)
         split.setSizes([360, 1100])
         self.setCentralWidget(split)
@@ -401,12 +570,15 @@ class MainWindow(QMainWindow):
     def make_toolbar(self):
         self.import_menu = self.menuBar().addMenu("导入")
         self.reading_menu = self.menuBar().addMenu("阅读")
+        self.search_menu = self.menuBar().addMenu("检索")
         self.tools_menu = self.menuBar().addMenu("工具")
         self.view_menu = self.menuBar().addMenu("视图")
         self.reading_menu.addAction("继续阅读", self.resume_reading)
         self.reading_menu.addAction("返回上一个文件", self.go_back)
         self.reading_menu.addAction("上一文件", lambda: self.adjacent_file(-1))
         self.reading_menu.addAction("下一文件", lambda: self.adjacent_file(1))
+        online_menu = self.import_menu.addMenu("在线采集")
+        local_menu = self.import_menu.addMenu("本地资料")
         controls = QWidget()
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(8, 4, 8, 4)
@@ -418,34 +590,44 @@ class MainWindow(QMainWindow):
         self.mode = QComboBox()
         self.mode.addItems(["changed", "missing", "force"])
         controls_layout.addWidget(self.mode)
-        controls_action = QWidgetAction(self.import_menu)
+        controls_action = QWidgetAction(online_menu)
         controls_action.setDefaultWidget(controls)
-        self.import_menu.addAction(controls_action)
-        self.import_menu.addSeparator()
-        self.run_button = self.import_menu.addAction("更新…", self.choose_update)
-        self.preview_button = self.import_menu.addAction("预览文本更新", lambda: self.run_update(preview=True))
-        self.images_button = self.import_menu.addAction("下载 terra 图片", lambda: self.run_update(images=True))
-        self.import_menu.addSeparator()
-        self.import_menu.addAction("导入本地资料…", self.import_file)
-        self.import_menu.addAction("替换当前本地资料…", self.replace_file)
-        self.notes_toolbar_action = self.tools_menu.addAction(
-            "更新意见", lambda: (self.notes_dock.show(), self.opinions_edit.setFocus()))
+        online_menu.addAction(controls_action)
+        online_menu.addSeparator()
+        self.run_button = online_menu.addAction("更新资料（选择文本或完整）…", self.choose_update)
+        self.preview_button = online_menu.addAction("预览文本变动", lambda: self.run_update(preview=True))
+        self.images_button = online_menu.addAction("下载泰拉记事图片", lambda: self.run_update(images=True))
+        local_menu.addAction("导入新资料…", self.import_file)
+        local_menu.addAction("替换当前本地资料…", self.replace_file)
+        self.search_menu.addAction("文件内查找", lambda: self.find_input.setFocus())
+        self.search_menu.addAction("全库检索", lambda: self.global_input.setFocus())
         wrap = QAction("自动换行", self)
         wrap.setCheckable(True)
         wrap.setChecked(True)
         wrap.triggered.connect(self.set_wrap)
         self.view_menu.addAction(wrap)
+        self.markdown_action = QAction("Markdown 格式化显示", self)
+        self.markdown_action.setCheckable(True)
+        self.markdown_action.setChecked(True)
+        self.markdown_action.setShortcut("Ctrl+M")
+        self.markdown_action.toggled.connect(self.set_markdown_format)
+        self.view_menu.addAction(self.markdown_action)
+        font_menu = self.view_menu.addMenu("阅读字号")
+        for size in (12, 14, 16, 18, 20, 24):
+            font_menu.addAction(f"{size} pt", lambda checked=False, value=size: self.set_font_size(value))
         self.vim_action = QAction("只读 Vim 操作", self)
         self.vim_action.setCheckable(True)
         self.vim_action.setChecked(True)
         self.vim_action.toggled.connect(self.set_vim)
-        self.view_menu.addAction(self.vim_action)
+        self.tools_menu.addAction(self.vim_action)
         self.command_action = QAction("命令栏", self)
         self.command_action.setCheckable(True)
         self.command_action.setShortcut("Ctrl+L")
         self.command_action.toggled.connect(self.set_command_visible)
-        self.view_menu.addAction(self.command_action)
+        self.tools_menu.addAction(self.command_action)
         self.help_menu = self.menuBar().addMenu("帮助")
+        self.notes_toolbar_action = self.help_menu.addAction(
+            "更新意见", lambda: (self.notes_dock.show(), self.opinions_edit.setFocus()))
         self.help_menu.addAction("快捷键与命令", self.show_command_help)
         self.help_menu.addAction("关于 M3 Reader", lambda: QMessageBox.information(
             self, "关于 M3 Reader", f"M3 Reader {__version__}\nPRTS 资料阅读与采集工具"))
@@ -466,6 +648,13 @@ class MainWindow(QMainWindow):
         self.global_input.setFixedWidth(200)
         self.global_input.returnPressed.connect(self.global_search)
         right_layout.addWidget(self.global_input)
+        self.search_scope = QComboBox()
+        self.search_scope.addItem("全部", "all")
+        self.search_scope.addItem("采集文本", "collected")
+        self.search_scope.addItem("本地资料", "local")
+        self.search_scope.addItem("OCR", "ocr")
+        self.search_scope.setToolTip("限定全库检索来源")
+        right_layout.addWidget(self.search_scope)
         global_button = QPushButton("搜索")
         global_button.clicked.connect(self.global_search)
         right_layout.addWidget(global_button)
@@ -497,9 +686,16 @@ class MainWindow(QMainWindow):
         return dock
 
     def make_search_dock(self):
-        self.search_results = QListWidget()
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(6, 4, 6, 4)
+        self.search_summary = QLabel("输入关键词检索文件名和正文；双击结果跳转")
+        layout.addWidget(self.search_summary)
+        self.search_results = QTreeWidget()
+        self.search_results.setHeaderLabels(["文件 / 命中内容", "位置"])
         self.search_results.itemDoubleClicked.connect(self.open_search_hit)
-        self.search_dock = self._dock("搜索结果 · 双击跳转", self.search_results, Qt.DockWidgetArea.BottomDockWidgetArea)
+        layout.addWidget(self.search_results)
+        self.search_dock = self._dock("全库检索 · 按文件归组", panel, Qt.DockWidgetArea.BottomDockWidgetArea)
         self.search_dock.hide()
 
     def make_history_dock(self):
@@ -549,6 +745,26 @@ class MainWindow(QMainWindow):
         for reader in self.readers.values():
             if isinstance(reader, TextReader):
                 reader.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if enabled else QPlainTextEdit.LineWrapMode.NoWrap)
+
+    def set_markdown_format(self, enabled: bool):
+        self.markdown_formatted = enabled
+        for reader in self.readers.values():
+            if isinstance(reader, MarkdownReader):
+                reader.set_formatted(enabled, focus=reader is self.tabs.currentWidget())
+
+    def set_font_size(self, size: float):
+        if not 8 <= size <= 40:
+            raise ValueError("字号范围为 8–40 pt")
+        self.reader_font_size = size
+        for reader in self.readers.values():
+            if isinstance(reader, MarkdownReader):
+                reader.set_reader_font_size(size)
+            elif isinstance(reader, TextReader):
+                font = reader.font()
+                font.setPointSizeF(size)
+                reader.setFont(font)
+                reader._margin()
+        self.statusBar().showMessage(f"阅读字号：{size:g} pt")
 
     def set_vim(self, enabled):
         for reader in self.readers.values():
@@ -634,7 +850,7 @@ class MainWindow(QMainWindow):
     def show_command_help(self):
         QMessageBox.information(self, "阅读快捷键与命令",
             "只读 Vim：h/j/k/l、0/$、w/b、gg/G、数字前缀、Ctrl+D/U/B、/搜索、n/N、:行号。\n\n"
-            "可选命令栏（Ctrl+L）：find、search、jump、update、preview、images、history、"
+            "可选命令栏（Ctrl+L）：font size 16、find、search、jump、update、preview、images、history、"
             "diff 运行序号 变化序号、notes、note、save、page、open、import、replace、"
             "resume、next、prev、back、help、quit。")
 
@@ -657,6 +873,26 @@ class MainWindow(QMainWindow):
                 parent = entries[key]
             parent.setData(0, Qt.ItemDataRole.UserRole, str(path))
         self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
+        if self.tree_filter.text():
+            self.filter_tree(self.tree_filter.text())
+
+    def filter_tree(self, term: str):
+        needle = term.strip().casefold()
+
+        def visit(item, parent_matches: bool = False) -> bool:
+            matched = parent_matches or needle in item.text(0).casefold()
+            visible_child = False
+            for index in range(item.childCount()):
+                if visit(item.child(index), matched):
+                    visible_child = True
+            visible = not needle or matched or visible_child
+            item.setHidden(not visible)
+            if needle and visible_child:
+                item.setExpanded(True)
+            return visible
+
+        for index in range(self.tree.topLevelItemCount()):
+            visit(self.tree.topLevelItem(index))
 
     def open_tree_item(self, item, _column):
         value = item.data(0, Qt.ItemDataRole.UserRole)
@@ -752,7 +988,9 @@ class MainWindow(QMainWindow):
                     self.find_input.setFocus()
             elif command == "search":
                 if rest:
-                    self.global_input.setText(rest)
+                    query, scope = parse_search_request(rest)
+                    self.search_scope.setCurrentIndex(self.search_scope.findData(scope))
+                    self.global_input.setText(query)
                     self.global_search()
                 else:
                     self.global_input.setFocus()
@@ -761,6 +999,15 @@ class MainWindow(QMainWindow):
                 if not isinstance(reader, TextReader) or not rest.isdecimal() or int(rest) < 1:
                     raise ValueError("先打开文本，再输入 jump 行号")
                 reader.jump(int(rest))
+            elif command == "font":
+                parts = rest.split()
+                if len(parts) != 2 or parts[0].casefold() != "size":
+                    raise ValueError("用法：font size 16（8–40 pt）")
+                try:
+                    size = float(parts[1])
+                except ValueError:
+                    raise ValueError("字号必须是数字，例如 font size 16") from None
+                self.set_font_size(size)
             elif command in {"update", "preview", "images"}:
                 self._command_update(command, rest)
             elif command == "history":
@@ -873,8 +1120,19 @@ class MainWindow(QMainWindow):
         else:
             suffix = path.suffix.lower()
             if suffix in TEXT_SUFFIXES:
-                reader = TextReader(path)
+                reader = MarkdownReader(path) if suffix == ".md" else TextReader(path)
                 reader.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if self.wrap_enabled else QPlainTextEdit.LineWrapMode.NoWrap)
+                if isinstance(reader, MarkdownReader):
+                    reader.set_formatted(self.markdown_formatted)
+                    reader.link_activated.connect(lambda url, source=path: self.open_markdown_link(source, url))
+                    reader.source_requested.connect(lambda: self.markdown_action.setChecked(False))
+                if self.reader_font_size != 14:
+                    if isinstance(reader, MarkdownReader):
+                        reader.set_reader_font_size(self.reader_font_size)
+                    else:
+                        font = reader.font()
+                        font.setPointSizeF(self.reader_font_size)
+                        reader.setFont(font)
                 reader.vim_enabled = self.vim_action.isChecked()
                 reader.vim_prompt.connect(self.show_vim_prompt)
                 reader.vim_find.connect(self.vim_find)
@@ -892,12 +1150,34 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(reader)
         self.current_path = path
         saved_line, saved_page = position_for(path) if not existing and not line and page is None else (1, None)
-        if isinstance(reader, TextReader) and (line or not existing):
+        if isinstance(reader, MarkdownReader) and (line or (not existing and saved_line > 1)):
+            reader.jump(min(line or saved_line, reader.blockCount()))
+        elif isinstance(reader, TextReader) and not isinstance(reader, MarkdownReader) and (line or not existing):
             reader.jump(min(line or saved_line, reader.blockCount()))
         if isinstance(reader, PdfReader) and (page or (not existing and saved_page)):
             reader.jump(page or saved_page)
         self._save_reader_position(reader)
         self.statusBar().showMessage(f"{source_kind(path)} · {relative_id(path)}")
+
+    def open_markdown_link(self, source: Path, url: QUrl):
+        if url.scheme() in {"http", "https"}:
+            QDesktopServices.openUrl(url)
+            return
+        if not url.path() and url.fragment():
+            reader = self.tabs.currentWidget()
+            if isinstance(reader, MarkdownReader):
+                reader.browser.scrollToAnchor(url.fragment())
+            return
+        target = (source.parent / url.path()).resolve() if url.isRelative() else Path(url.toLocalFile()).resolve()
+        if target.is_file():
+            try:
+                relative_id(target)
+            except ValueError:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+            else:
+                self.open_resource(target)
+        else:
+            self.statusBar().showMessage(f"链接目标不存在：{url.toString()}", 8000)
 
     def close_tab(self, index):
         reader = self.tabs.widget(index)
@@ -950,23 +1230,39 @@ class MainWindow(QMainWindow):
         if not term or (self.search_worker and self.search_worker.isRunning()):
             return
         self.search_results.clear()
-        self.search_results.addItem("正在搜索…")
+        self.search_summary.setText(f"正在检索「{term}」…")
         self.search_dock.show()
-        self.search_worker = SearchThread(term)
+        self.search_worker = SearchThread(term, self.search_scope.currentData())
         self.search_worker.ready.connect(self.show_hits)
         self.search_worker.start()
 
     def show_hits(self, hits):
         self.search_results.clear()
+        groups: dict[str, QTreeWidgetItem] = {}
         for hit in hits:
-            label = f"{hit.resource_id}:{hit.line}" + (f" · PDF 第 {hit.page} 页" if hit.page else "")
-            item = QListWidgetItem(f"{label}\n    {hit.excerpt}")
-            item.setData(Qt.ItemDataRole.UserRole, hit)
-            self.search_results.addItem(item)
-        self.statusBar().showMessage(f"搜索完成：{len(hits)} 条结果" + ("（达到显示上限，可缩小关键词范围）" if len(hits) >= 10000 else ""))
+            root = groups.get(hit.resource_id)
+            if root is None:
+                root = QTreeWidgetItem([hit.resource_id, ""])
+                root.setData(0, Qt.ItemDataRole.UserRole, hit)
+                self.search_results.addTopLevelItem(root)
+                groups[hit.resource_id] = root
+            label = ("[文件名] " if hit.kind == "title" else "") + hit.excerpt
+            item = QTreeWidgetItem([label, f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行"])
+            item.setData(0, Qt.ItemDataRole.UserRole, hit)
+            root.addChild(item)
+        for root in groups.values():
+            root.setText(1, f"{root.childCount()} 条")
+            root.setExpanded(len(groups) <= 8)
+        message = f"{len(groups)} 个文件 · {len(hits)} 条命中"
+        if len(hits) >= 1000:
+            message += " · 达到显示上限，请缩小范围或关键词"
+        if not hits:
+            message = "没有命中；试试更短的关键词或切换来源范围"
+        self.search_summary.setText(message)
+        self.statusBar().showMessage(message)
 
-    def open_search_hit(self, item):
-        hit = item.data(Qt.ItemDataRole.UserRole)
+    def open_search_hit(self, item, _column):
+        hit = item.data(0, Qt.ItemDataRole.UserRole)
         if not hit:
             return
         self.open_resource(resource_path(hit.resource_id), line=hit.line)

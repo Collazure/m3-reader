@@ -87,16 +87,47 @@ class SearchHit:
     line: int
     excerpt: str
     page: int | None = None
+    kind: str = "content"
 
 
-def search_text(query: str, *, limit: int = 500, files: Iterator[Path] | None = None) -> list[SearchHit]:
+SEARCH_SCOPES = {"all", "collected", "local", "ocr"}
+
+
+def parse_search_request(text: str) -> tuple[str, str]:
+    """Parse `--scope local words` while leaving ordinary searches untouched."""
+    words = text.strip().split()
+    if words[:1] == ["--scope"]:
+        if len(words) < 3 or words[1] not in SEARCH_SCOPES:
+            raise ValueError("用法：search --scope all|collected|local|ocr 关键词")
+        return " ".join(words[2:]), words[1]
+    return text.strip(), "all"
+
+
+def search_text(query: str, *, limit: int = 500, scope: str = "all",
+                files: Iterator[Path] | None = None) -> list[SearchHit]:
     term = query.strip().casefold()
-    if not term:
+    if not term or limit < 1:
         return []
-    hits: list[SearchHit] = []
+    if scope not in SEARCH_SCOPES:
+        raise ValueError(f"未知搜索范围：{scope}")
+    candidates = []
     for path in files if files is not None else resource_files():
-        if path.suffix.lower() not in TEXT_SUFFIXES or path.name.startswith("_"):
+        if path.suffix.lower() not in TEXT_SUFFIXES:
             continue
+        resource_id = relative_id(path)
+        if scope == "collected" and not resource_id.startswith("collected/"):
+            continue
+        if scope == "local" and not resource_id.startswith("local/"):
+            continue
+        if scope == "ocr" and source_kind(path) != "OCR 派生资料":
+            continue
+        candidates.append((path, resource_id))
+    title_hits = [SearchHit(resource_id, 1, f"文件名：{path.name}", kind="title")
+                  for path, resource_id in candidates if term in path.stem.casefold()]
+    if len(title_hits) >= limit:
+        return title_hits[:limit]
+    hits: list[SearchHit] = []
+    for path, resource_id in candidates:
         page: int | None = None
         try:
             with path.open("r", encoding="utf-8", errors="replace") as stream:
@@ -112,12 +143,12 @@ def search_text(query: str, *, limit: int = 500, files: Iterator[Path] | None = 
                         excerpt = ("…" if start else "") + line[start:start + 220].strip()
                         if len(line) > start + 220:
                             excerpt += "…"
-                        hits.append(SearchHit(relative_id(path), line_no, excerpt, page))
-                        if len(hits) >= limit:
-                            return hits
+                        hits.append(SearchHit(resource_id, line_no, excerpt, page))
+                        if len(title_hits) + len(hits) >= limit:
+                            return title_hits + hits
         except OSError:
             continue
-    return hits
+    return title_hits + hits
 
 
 def _write_json(path: Path, data: object) -> None:

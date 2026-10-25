@@ -1,6 +1,6 @@
 # 已知信息与待验证事项
 
-文档版本：1.5；最近核实：2026-10-26。
+文档版本：1.6；最近核实：2026-10-26。
 维护规则：记录证据位置和核实日期；实现后更新状态，区分现状、设计和待验证事项。
 
 ## 已核实事实
@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.7.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.8.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -41,6 +41,9 @@
 | K32 | 参考阅读器 ArkPlots-APP_Release 有本地阅读记录与前后导航；M3 Reader 已借鉴为共用 `reading.json`、续读和 GUI 前后导航 | reference/ArkPlots-APP_Release；prts_tool/reading.py、gui.py、tui.py；2026-10-26 |
 | K33 | GUI/TUI 点击目录自动打开最高层合适索引，GUI 命令栏可独立于只读 Vim 开关隐藏 | prts_tool/library.py、gui.py、tui.py；tests/test_reading.py、test_gui_layout.py |
 | K34 | Windows 与 Ubuntu GUI 共用 gui.py，差异仅在启动与打包脚本；图标放在 assets/icon.png | prts_tool/gui.py、paths.py、scripts/build_windows.ps1、build_ubuntu.sh；Ubuntu 实机显示仍待验证 |
+| K35 | Markdown 由 Qt QTextBrowser 格式化显示，源码仍由带行号的只读 TextReader 提供；具体行跳转切换到源码 | prts_tool/gui.py；tests/test_gui_layout.py |
+| K36 | 参考工程建议改进信息层级与检索；2.8.0 采用按文件归组、文件名优先、来源范围和树筛选 | reference/ArkPlots参考价值分析-m3-reader.md、WikiTransporter参考价值分析-m3-reader.md；prts_tool/library.py、gui.py、tui.py |
+| K37 | GUI `font size N` 调整阅读字号；TUI 字号由所在终端控制，prompt_toolkit 无跨终端字体设置接口 | prts_tool/gui.py、tui.py；2026-10-26 |
 
 ## 待实现 / 待验证
 

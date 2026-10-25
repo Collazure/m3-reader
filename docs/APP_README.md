@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-程序版本：2.7.0。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
+程序版本：2.8.0。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
@@ -61,18 +61,22 @@ Notepad++ DarkModeDefault 主题的正文、行号、当前行和搜索配色。
 
 ## 阅读与维护
 
-GUI 左侧目录树点击打开文本、长图或 PDF。文本可用 `Ctrl+F` 查找、`F3` 查下一个；
-`Ctrl+Shift+F` 全局搜索，双击命中可打开文件并定位行。《大地巡旅》OCR 命中可打开 PDF
-对应页。文本默认自动换行，可用工具栏开关切换，并用 `Ctrl+滚轮` 缩放字体。
+GUI 左侧目录树可按文件或目录名筛选；点击打开文本、长图或 PDF。Markdown 默认格式化
+显示，使用「视图 → Markdown 格式化显示」（`Ctrl+M`）在格式化和带行号源码之间切换。
+从检索结果跳到具体行会自动切到源码，便于核对行号。文本可用 `Ctrl+F` 查找、`F3`
+查下一个；`Ctrl+Shift+F` 全库检索，可限定采集文本、本地资料或 OCR，结果按文件归组，
+文件名命中优先显示。双击命中可打开文件并定位行。《大地巡旅》OCR 命中可打开 PDF
+对应页。文本默认自动换行，可在「视图」切换，并用 `Ctrl+滚轮` 缩放字体。
 文本阅读器左侧显示绝对行号，当前行号高亮。图片使用 `Ctrl+滚轮` 缩放，PDF 顶部输入页码跳转。
 启动时右侧的「本地更新意见」和「变动栏」默认隐藏。顶部菜单左侧依次是「导入」
-（更新、下载图片、导入或替换资料）、「阅读」、「工具」（意见与变动）、
-「视图」（自动换行、Vim 与命令栏）和「帮助」；文件内搜索、全局搜索及程序版本在右侧。
+（在线采集、本地资料）、「阅读」、「检索」、「工具」（Vim、命令栏、变动栏）、
+「视图」（自动换行、Markdown、字号）和「帮助」（更新意见）；搜索与程序版本在右侧。
 「工具 → 变动栏」打开逐行更新历史。单击目录时会打开该目录合适的最高层索引。
 GUI 文本阅读支持只读 Vim：h/j/k/l、0/$、w/b、gg/G、数字前缀、Ctrl+D/U/B、
 / 搜索、n/N 和 :行号。按 Ctrl+L 可显示或隐藏底部命令栏；隐藏后 Vim 阅读仍可使用。
 命令栏中 Tab 补全命令名，↑/↓ 浏览已执行命令。
-命令栏支持 find/search/jump/update/preview/images/history/diff/notes/note/save/page/
+命令栏支持 `font size 16`（8–40 pt）、`search --scope local 关键词`、
+find/search/jump/update/preview/images/history/diff/notes/note/save/page/
 open/import/replace/resume/next/prev/back/help/quit。阅读位置保存在本地
 `workspace/reading.json`，可由「阅读 → 继续阅读」或 `resume` 回到上次的位置。
 程序图标使用项目 `assets/icon.png`。
@@ -119,7 +123,8 @@ TUI 左侧目录限宽，右侧阅读区占余下宽度，阅读区左侧显示�
 `Ctrl+C` 取消；命令失败会以黄色/红色留在状态栏，并给出参数范围或相近命令提示。
 命令栏输入 `help` 可查看完整命令。终端无法统一显示图片/PDF 像素，`open` 交给系统
 查看器（Windows 默认程序、Linux `xdg-open`/`gio`）；《大地巡旅》可用 `page 页号`
-直接阅读对应页 OCR。
+直接阅读对应页 OCR。TUI 的 `search --scope local 关键词` 可限定来源（all、collected、
+local、ocr）；`font size N` 会提示在终端程序里调整字号，终端字体不受 TUI 控制。
 
 ## 平台检查
 
@@ -144,7 +149,7 @@ Windows 双击 `bin/windows/m3-reader-gui.exe`，Ubuntu 双击或从应用菜单
 
 Windows 上已验证 GUI 初始化、文本、图片及 454 页 PDF 打开与页码定位，并验证 TUI 启动。
 Windows 与 Ubuntu 使用同一套 GUI/TUI 源码；Ubuntu 构建由仓库工作流执行，
-安装旧版的设备需安装 2.7.0 才能看到新菜单。Ubuntu 实机的桌面会话、字体与系统查看器
+安装旧版的设备需安装 2.8.0 才能看到新菜单。Ubuntu 实机的桌面会话、字体与系统查看器
 仍待验证。没有图形桌面时可继续使用 CLI/TUI。
 
 
