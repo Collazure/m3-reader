@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.5.5 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.6.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -18,7 +18,7 @@
 | K09 | 资源规模：prts_text 下 4916 个文件，terra 下 238 个文件，其中图片 169 张 | 2026-10-25 文件清点；计数含索引等辅助文件，不等同于正文数量 |
 | K10 | prts_text 与 terra 中此次清点无 PDF | 《大地巡旅》PDF 现位于 resources/local/大地巡旅/；按本地原件维护 |
 | K11 | 《大地巡旅》PDF 约 418 MB，454 页，没有文字层 | docs/OCR_README.md；GUI 按需加载，全文搜索使用关联 OCR |
-| K12 | 《大地巡旅》有合并 OCR、逐页文本及页清单；449 页有可识别正文 | resources/local/大地巡旅/大地巡旅_OCR.txt、同目录 OCR_pages/；可按页映射搜索结果 |
+| K12 | 《大地巡旅》有合并 OCR、逐页文本及页清单；449 页有可识别正文 | resources/local/大地巡旅/text/大地巡旅_OCR.txt、text/pages/；页面图在 images/；可按页映射搜索结果 |
 | K13 | terra_text 是 terra 图片的 OCR 派生 Markdown，带来源图片链接 | resources/ocr/terra_text/；相对链接已随迁移修复 |
 | K14 | 同名“大地巡旅”也出现在可采集 terra 微博条目中 | resources/collected/terra/其它档案/ 下四期目录；整本 PDF 与微博条目维护方式不同 |
 | K15 | 旧 README 已有十项采集和 OCR 已知问题 | README 第 8 节；迁移文档时保留原有事实和维护约定 |
@@ -26,7 +26,7 @@
 | K17 | 默认采集根已改为 resources/collected/，Python 程序仍在 prts_tool/，旧 Arknights 资源已迁移 | prts_tool/paths.py、resources/README.md；默认路径与工作目录无关 |
 | K18 | Windows GUI 已初始化并打开文本、terra 图片及 454 页《大地巡旅》PDF，PDF 页码跳转正常 | 2026-10-25 PySide6 本机运行验证；无窗口渲染缺少中文字体，正常 Windows Qt 字体库可识别 Maple Mono NF CN |
 | K19 | TUI 已在 Windows PTY 启动；共享层的搜索、历史和本地导入替换经过测试 | 2026-10-25；入口和操作说明见 docs/APP_README.md |
-| K20 | 非采集资料统一位于 resources/local/，《大地巡旅》OCR 默认位置随 PDF 一并调整 | prts_tool/paths.py、resources/README.md；爬虫更新只作用于 collected/ |
+| K20 | 非采集资料统一位于 resources/local/，《大地巡旅》页面图与 OCR 文本分存 images/ 与 text/ | prts_tool/paths.py、resources/README.md；爬虫更新只作用于 collected/ |
 | K21 | 用户意见是可直接编辑的 workspace/更新意见.md，无需打开任何资源 | prts_tool/library.py、gui.py、tui.py；旧 notes.json 仅保留供查阅 |
 | K22 | Windows 已构建并启动 GUI 和 CLI；Ubuntu 有独立构建入口，需在 Ubuntu 上构建验证 | bin/windows/、scripts/build_windows.ps1、build_ubuntu.sh、prts_tool/paths.py；冻结程序从 bin/平台/ 定位资源 |
 | K23 | 项目名与 CLI 已改为 m3-reader，项目位于 /run/media/collazure/Static/texts/m3-reader | pyproject.toml、prts_tool/paths.py；`M3_READER_HOME` 可覆盖资源根 |
@@ -37,6 +37,7 @@
 | K28 | TUI 启动焦点在命令栏；目录/阅读区控件层接管 `n`/`N`/`/`/`?`，保证任意字符都能开始命令 | prts_tool/tui.py；prompt_toolkit 只读缓冲默认绑定这些键为缓冲内搜索，须在控件层覆盖 |
 | K29 | TUI 支持 Alt 焦点、单参数命令两步提示、两行搜索结果 Enter 打开、阅读区只读 vim 移动；TUI/GUI 均显示绝对行号 | prts_tool/tui.py、gui.py；tests/test_tui.py、tests/test_gui_layout.py |
 | K30 | TUI `back` / 阅读区 `Ctrl+O` 返回上一个页面；页面栈保存文本、行号、选中资源、结果列表与 OCR 页码，最多 50 层 | prts_tool/tui.py；更新进行中拒绝返回，避免与流式输出冲突 |
+| K31 | 泰拉年表由 activity 采集器顺带抓取并写到 prts_text/泰拉年表.txt；TUI `next` 打开同目录下一个文件；大地巡旅页面图与文本分存 | prts_tool/collectors/activity.py、ocr_book.py、tui.py；tests/test_activity_timeline.py、test_resource_paths.py、test_tui.py |
 
 ## 待实现 / 待验证
 

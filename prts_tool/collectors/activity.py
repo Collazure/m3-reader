@@ -37,8 +37,9 @@ import click
 
 from ..htmltext import html_to_text
 from ..http import BASE
-from ..output import Manifest, natural_key, sanitize, sanitize_path, write_text
+from ..output import Manifest, natural_key, sanitize, sanitize_path, signature, write_text
 from ..registry import Collector, Context, Stat, need_update, register
+from ..wikitext import iter_templates, plain_text
 
 MODULE_DIR = "activity"
 NAV_PAGE = "Template:剧情导航"
@@ -74,9 +75,161 @@ NOISE_HINTS = (
 
 CJK_RE = re.compile(r"[一-鿿]")
 
+# 泰拉年表：不是活动页，但属于同类的 PRTS 长文。复用本采集器抓取，
+# 直接写到 OUT/泰拉年表.txt（prts_text 下一级），不另建采集器。
+TIMELINE_TITLE = "泰拉年表"
+TIMELINE_FILE = "泰拉年表.txt"
+TIMELINE_PARSER_VERSION = 1
+
 
 def _cjk_count(text: str) -> int:
     return len(CJK_RE.findall(text or ""))
+
+
+def _timeline_clean(text: str) -> str:
+    """Clean wiki markup plus external links, keeping their visible labels."""
+    text = re.sub(r"\[(?:https?://|//)[^\s\]]+\s+([^\]]+)\]", r"\1", text)
+    text = re.sub(r"\[(?:https?://|//)[^\]]+\]", "", text)
+    # Editorial note bubbles are not part of the timeline text.
+    text = re.sub(r"\{\{popup\|.*?\}\}", "", text, flags=re.S)
+    return plain_text(text)
+
+
+def _split_top_level(inner: str) -> list[str]:
+    """Split a template body on top-level ``|`` (keeps nested templates/links).
+
+    Unlike ``split_params`` this does not reinterpret a positional argument as
+    a named one when it contains ``=`` inside a nested template.
+    """
+    parts: list[str] = []
+    buf: list[str] = []
+    curly = square = 0
+    i, size = 0, len(inner)
+    while i < size:
+        two = inner[i:i + 2]
+        if two == "{{":
+            curly += 1
+            buf.append(two)
+            i += 2
+            continue
+        if two == "}}":
+            curly -= 1
+            buf.append(two)
+            i += 2
+            continue
+        if two == "[[":
+            square += 1
+            buf.append(two)
+            i += 2
+            continue
+        if two == "]]":
+            square -= 1
+            buf.append(two)
+            i += 2
+            continue
+        char = inner[i]
+        if char == "|" and curly == 0 and square == 0:
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(char)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def parse_timeline(raw: str) -> list[tuple]:
+    """Parse 泰拉年表 wikitext into an ordered event stream.
+
+    Events are ``("heading", level, title)``, ``("label", text)`` and
+    ``("entry", body, [sources])``.  Templates may span multiple lines, so
+    positions are derived from the whole page rather than line by line.
+    """
+    raw = re.sub(r"<!--.*?-->", "", raw, flags=re.S)
+    events: list[tuple] = []
+
+    for match in re.finditer(r"^(={2,6})\s*(.*?)\s*\1\s*$", raw, re.M):
+        title = _timeline_clean(match.group(2))
+        if title:
+            events.append(("heading", match.start(), len(match.group(1)), title))
+
+    for match in re.finditer(r"^!.*$", raw, re.M):
+        line = match.group(0)
+        cell = line[1:]
+        if "colspan" in cell:
+            continue
+        if "|" in cell:
+            cell = cell.split("|", 1)[1]
+        label = _timeline_clean(cell)
+        if not label or label in {"来源", "链接格式", "样例"} or "链接格式" in label:
+            continue
+        span = re.search(r'rowspan\s*=\s*"?(\d+)', line)
+        events.append(("label", match.start(), label, int(span.group(1)) if span else 1))
+
+    for position, inner in iter_templates(raw, "并行折叠框"):
+        parts = _split_top_level(inner)
+        body = _timeline_clean(parts[1] if len(parts) > 1 else "")
+        sources = []
+        for line in (parts[2] if len(parts) > 2 else "").splitlines():
+            line = line.strip()
+            if line.startswith("*"):
+                source = _timeline_clean(line.lstrip("*").strip())
+                if source:
+                    sources.append(source)
+        if body or sources:
+            events.append(("entry", position, body, sources))
+
+    events.sort(key=lambda event: event[1])
+
+    ordered: list[tuple] = []
+    pending: list[tuple[int, str]] = []
+    label: str | None = None
+    remaining = 0
+    label_emitted = False
+    for event in events:
+        if event[0] == "heading":
+            pending = [item for item in pending if item[0] < event[2]]
+            pending.append((event[2], event[3]))
+            label, remaining, label_emitted = None, 0, False
+        elif event[0] == "label":
+            label, remaining, label_emitted = event[2], event[3], False
+        else:
+            if pending:
+                ordered.extend(("heading", level, title) for level, title in pending)
+                pending.clear()
+            if label and not label_emitted:
+                ordered.append(("label", label))
+                label_emitted = True
+            if remaining > 0:
+                remaining -= 1
+                if remaining == 0:
+                    label = None
+            ordered.append(("entry", event[2], event[3]))
+    return ordered
+
+
+def render_timeline(raw: str) -> str:
+    """Render 泰拉年表 as the readable text written to OUT/泰拉年表.txt."""
+    lines = [
+        TIMELINE_TITLE,
+        f"来源：PRTS Wiki（{BASE}/w/{TIMELINE_TITLE}），"
+        f"抓取时间：{time.strftime('%Y-%m-%d')}",
+        "",
+    ]
+    for event in parse_timeline(raw):
+        if event[0] == "heading":
+            level, title = event[1], event[2]
+            lines += ["=" * level + f" {title} " + "=" * level, ""]
+        elif event[0] == "label":
+            lines += [f"【{event[1]}】", ""]
+        else:
+            body, sources = event[1], event[2]
+            if body:
+                lines += body.splitlines() + [""]
+            for source in sources:
+                lines += [f"    - {source}", ""]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _all_subpages(client, group: str) -> list[str] | None:
@@ -121,16 +274,18 @@ def _render_page(client, title: str) -> tuple[str, int, str]:
 class ActivityCollector(Collector):
     name = "activity"
     title = "活动文本：活动公告 / 综合调查数据库 / 审判庭纪要 等活动专属长文"
-    help = """抓取活动页面里不属于「关卡剧情」的正文。
+    help = """抓取活动页面里不属于「关卡剧情」的正文，并顺带更新泰拉年表。
 
 \b
 输出：OUT/activity/<活动名>/<子页面名>.txt
       OUT/activity/<活动名>/<子页面>/活动公告.txt
+      OUT/泰拉年表.txt            ← 复用本采集器，直接放在 prts_text 下一级
 
 收录范围：
   * 所有 `活动公告` 子页面；
   * 名称命中 LORE_HINTS 的活动长文（综合调查数据库、审判庭纪要、待办事项记录、
-    PRTS 金律记录、信息端口、PRTS 绿洲记录、日志、敌袭记录、剧情链……）。
+    PRTS 金律记录、信息端口、PRTS 绿洲记录、日志、敌袭记录、剧情链……）；
+  * 固定页面 `泰拉年表`（表格解析为可读年表，不另建采集器）。
 自动排除关卡信息、商店、地图、合约指标、肉鸽图鉴等机制页；
 avg / reclamation 已收录的页面不再重复；集成战略主题的图鉴与记录页仍由
 roguelike 模块负责，这里只收它们各自的活动公告。
@@ -138,6 +293,39 @@ roguelike 模块负责，这里只收它们各自的活动公告。
 刷新方式与其它模块一致：changed（默认，按 revid）/ missing / force。
 用 `-g 孤星` 可以只抓某个活动。"""
     order = 25
+
+    def _collect_timeline(self, ctx: Context, manifest: Manifest, stat: Stat) -> None:
+        """Fetch 泰拉年表 with the same client/manifest machinery as activities."""
+        if ctx.keywords and not ctx.match(TIMELINE_TITLE):
+            return
+        self.header(ctx, "泰拉年表")
+        try:
+            page = ctx.client.pages([TIMELINE_TITLE], with_content=True).get(TIMELINE_TITLE)
+        except Exception as exc:
+            ctx.log(f"  ! 读取泰拉年表失败：{exc}")
+            return
+        if page is None or not page.content or not page.revid:
+            ctx.log("  ! 泰拉年表没有内容")
+            return
+        sig = signature(page.revid, TIMELINE_PARSER_VERSION)
+        path = ctx.out_dir / TIMELINE_FILE
+        key = f"timeline:{TIMELINE_TITLE}"
+        if not need_update(ctx, manifest, key, sig, path.exists()):
+            stat.skipped += 1
+            ctx.log("  未变化，跳过")
+            return
+        if ctx.dry_run:
+            ctx.log(f"  · 将写入 {TIMELINE_FILE}")
+            stat.dry_run_note = TIMELINE_FILE
+            return
+        body = render_timeline(page.content)
+        write_text(path, body, ignore_timestamps=True)
+        manifest.record(key, sig, revid=page.revid, file=TIMELINE_FILE,
+                        activity=TIMELINE_TITLE, page=TIMELINE_TITLE,
+                        kind="泰拉年表", chars=len(body), status="已写入")
+        manifest.save()
+        stat.written += 1
+        ctx.log(f"  + {TIMELINE_FILE}（{len(body)} 字）")
 
     @classmethod
     def params(cls) -> list:
@@ -154,6 +342,7 @@ roguelike 模块负责，这里只收它们各自的活动公告。
         stat = Stat()
         out = ctx.out_dir / MODULE_DIR
         manifest = Manifest(out / "_manifest.json")
+        self._collect_timeline(ctx, manifest, stat)
 
         self.header(ctx, "读取活动列表与子页面")
         nav_page = ctx.client.pages([NAV_PAGE], with_content=True).get(NAV_PAGE)
@@ -296,7 +485,8 @@ roguelike 模块负责，这里只收它们各自的活动公告。
                 ctx.log(f"  · 将抓取 [{kind}] {title}")
             if len(todo) > 50:
                 ctx.log(f"  …其余 {len(todo) - 50} 条省略")
-            stat.dry_run_note = f"{len(todo)} 个页面待抓取"
+            note = f"{len(todo)} 个页面待抓取"
+            stat.dry_run_note = f"{stat.dry_run_note}；{note}" if stat.dry_run_note else note
             return stat
 
         ctx.log(f"  需要抓取 {len(todo)} 个页面")

@@ -17,7 +17,7 @@ from .jobs import update_arguments
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, append_opinion,
                       read_opinions, relative_id, resource_files, resource_path, search_text,
                       source_kind)
-from .paths import BOOK_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
+from .paths import BOOK_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
 
 try:
     from prompt_toolkit import Application
@@ -73,6 +73,7 @@ COMMANDS = {
     "replace": "替换当前本地资料",
     "help": "帮助",
     "back": "返回上一个页面",
+    "next": "打开本目录的下一个文件",
     "quit": "退出",
 }
 
@@ -123,6 +124,7 @@ HELP = """M3 Reader 终端阅读器
   open                       使用系统查看器打开当前图片或 PDF
   import [路径]              导入本地资料；replace [路径] 替换当前本地资料
   back                       返回上一个打开的页面（阅读区 Ctrl+O）
+  next                       打开本目录的下一个文件
   help / quit                帮助 / 退出
 
 搜索与查找
@@ -674,6 +676,23 @@ class TerminalLibrary:
             self._set_status(f"已返回 · {view['status_text']}", "status.info")
         self.app.invalidate()
 
+    def _next_file(self) -> None:
+        """Open the next file in the same directory (tree order)."""
+        if not self.selected:
+            raise ValueError("请先打开一个文件")
+        path = self.selected
+        siblings = sorted((item for item in self.files if item.parent == path.parent),
+                          key=lambda item: item.name.casefold())
+        if path not in siblings:
+            raise ValueError("当前文件不在资源目录中")
+        index = siblings.index(path)
+        if index + 1 >= len(siblings):
+            self._set_status(f"已经是本目录最后一个文件（{path.parent.name}）", "status.warn")
+            return
+        target = siblings[index + 1]
+        self._open(target)
+        self._set_status(f"下一个 · {relative_id(target)}", "status.ok")
+
     # -------------------------------------------------------------- 目录
     def _reload_catalog(self):
         self.files = list(resource_files())
@@ -963,6 +982,8 @@ class TerminalLibrary:
                 self._show("帮助 · Tab 补全 · ↑↓ 历史 · Ctrl+C 取消更新", HELP)
             elif command == "back":
                 self._go_back()
+            elif command == "next":
+                self._next_file()
             elif command == "find":
                 self._find(rest)
             elif command == "jump":
@@ -1366,7 +1387,7 @@ class TerminalLibrary:
         page = parse_index(rest, "页码")
         if self._book_text is None:
             self._set_status("正在读取《大地巡旅》OCR…", "status.warn")
-            source = BOOK_DIR / "大地巡旅_OCR.txt"
+            source = BOOK_TEXT_DIR / "大地巡旅_OCR.txt"
             if not source.is_file():
                 raise ValueError(f"找不到 OCR 文本：{source}")
             self._book_text = source.read_text(encoding="utf-8", errors="replace")

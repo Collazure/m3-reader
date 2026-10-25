@@ -49,6 +49,8 @@ def source_kind(path: Path) -> str:
         return "采集资源"
     if parts[0] == "ocr" or "OCR" in path.name or "大地巡旅_OCR_pages" in parts:
         return "OCR 派生资料"
+    if "大地巡旅" in parts and "text" in parts:
+        return "OCR 派生资料"
     return "本地资料"
 
 

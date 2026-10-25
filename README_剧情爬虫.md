@@ -1,7 +1,7 @@
 # M3 Reader · PRTS 文本采集与阅读
 
 把 [PRTS 明日方舟中文 Wiki](https://prts.wiki) 的各类文本 / 图片抓成便于阅读的本地副本，
-纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.5.5。
+纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.6.0。
 
 资源已迁入 [resources/](resources/README.md)。其他设备安装包位于 [installpacks/](installpacks/README.md)。GUI / TUI 的安装与使用见 [资料终端说明](docs/APP_README.md)；需求记录见 [需求记录](docs/REQUIREMENTS.md)，
 调研事实及待验证事项见 [已知信息](docs/KNOWN_INFO.md)，
@@ -22,6 +22,7 @@ resources/collected/prts_text/                  ← 文本数据（默认输出�
 │   ├── 四月辑录/断罪者的挑战状/…            ← 四月辑录也自成一级分类
 │   ├── 特殊 危机合约/…                     ← 未归类的大类保持原样
 │   └── _索引.md / _manifest.json / _stage_manifest.json
+├── 泰拉年表.txt                          ← PRTS 泰拉年表（activity 顺带抓取，直接放在下一级）
 ├── activity/                             ← 活动页专属长文（avg 不收的活动文本）
 │   ├── 孤星/综合调查数据库.txt
 │   ├── 叙拉古人/待办事项记录.txt
@@ -107,7 +108,7 @@ m3-reader tui                      # TUI 资料终端（需要 prompt_toolkit）
 | `resources/collected/prts_text/` | 抓下来的文本（程序默认输出根） |
 | `resources/collected/terra/` | 泰拉记事社的图片（默认只写说明，图片用 `terra-images` 抓） |
 | `resources/ocr/terra_text/` | terra 图片的 OCR 文本，链接回原图 |
-| `resources/local/大地巡旅/` | 本地 PDF 与逐页 / 合并 OCR，不属于 PRTS 采集范围 |
+| `resources/local/大地巡旅/` | 本地 PDF（根目录）、`images/` 页面图与 `text/` OCR 文本，不属于 PRTS 采集范围 |
 | `../prts-wiki-map/` | 站点结构勘察资料（数据来源、Cargo 表、坑位，建议先读；不属于本工具） |
 
 ---
@@ -117,7 +118,7 @@ m3-reader tui                      # TUI 资料终端（需要 prompt_toolkit）
 | 命令 | 作用 | 输出 |
 | --- | --- | --- |
 | `avg` | 剧情文本（主线 / 支线 / 联动 / 故事集 / 四月辑录） | `avg/<分类>/<章节>/*.txt` |
-| `activity` | 活动页专属长文：活动公告 / 综合调查数据库 / 审判庭纪要 / 待办事项记录… | `activity/<活动名>/*.txt` |
+| `activity` | 活动页专属长文 + 泰拉年表：活动公告 / 综合调查数据库 / 审判庭纪要 / 待办事项记录… | `activity/<活动名>/*.txt`、`泰拉年表.txt` |
 | `stage` | 各章节、活动的关卡文本 | `avg/…/关卡文本.txt`、`reclamation/…/关卡文本.txt` |
 | `operator` | 干员档案 / 模组故事 / 干员密录(avg) / 悖论模拟 | `operator/<干员名>/*.txt` |
 | `furniture` | 家具文本（按主题/套组汇总） | `furniture/<主题>.txt` |
@@ -371,7 +372,14 @@ activity/
 ├── 沙中之火/PRTS绿洲记录.txt  日志.txt  敌袭记录.txt  剧情链.txt
 ├── 危机合约/涤墨作战/活动公告.txt
 └── _索引.md / _manifest.json
+
+prts_text/泰拉年表.txt                ← 直接放在 prts_text 下一级
 ```
+
+泰拉年表不是活动页，但它同样属于 PRTS 上的长文；为不新增独立采集器，
+`activity` 每次运行时顺带读取 `泰拉年表` 并解析为可读文本，写到
+`prts_text/泰拉年表.txt`。表格里的日期、正文与出处会整理成“日期 → 正文 → 来源”的结构，
+解析器在 `activity.py` 的 `parse_timeline()` / `render_timeline()`。
 
 **收录规则**（`prts_tool/collectors/activity.py`）：
 
@@ -385,6 +393,8 @@ activity/
 * 正文用 `action=parse&prop=text` 取渲染后的 HTML，再由 `prts_tool/htmltext.py`
   转纯文本；这样表格、折叠框、HTML 样式不会留下 `{|` / `style=` 噪声。
 * 汉字数少于 `--min-cjk`（默认 40）的页面记为「无正文」，不会反复重抓。
+* **泰拉年表**：固定页面 `泰拉年表` 由本模块顺带抓取，输出到 `prts_text/泰拉年表.txt`；
+  按 wiki 表格的日期标签（含 rowspan）、正文与出处解析，不新增采集器。
 
 常用：
 
@@ -529,7 +539,7 @@ Python 的字节码缓存偶尔会因为「源码 mtime + 文件大小都没变�
 | 5 | 活动页大量 HTML / 表格 / 折叠框，直接清 wikitext 会留下 `{|`、`style=` | `activity` 走 `action=parse&prop=text`，再用 `prts_tool/htmltext.py` 转纯文本；目录、编辑链接、音频播放器降级提示会被丢弃 |
 | 6 | `activity` 按页面名启发式选长文，新活动可能出现没见过的子页面名 | 先看 `activity/_索引.md`；漏了就往 `LORE_HINTS` 加关键词，或临时用 `-g <活动>` 检查 `--dry-run` 输出。子页面索引缓存在 `activity/_pages.json`（7 天），新活动或改规则后用 `--refresh-index` 强制重扫 |
 | 7 | `resources/updates/new/` 只保留文件的直接上一级目录，同名文件会加 ` (2)` | 这是「最近一次写入」的快照；主归档在 `resources/collected/prts_text/` |
-| 8 | 大地巡旅 PDF（`resources/local/大地巡旅/`）没有文字层 | `pdftotext` 输出为空；2026-10-24 已用 `tesseract-ocr` + `tesseract-ocr-chi-sim` 重跑 454 页，449 页有正文，合并为同目录的 `大地巡旅_OCR.txt`（约 47.7 万字）。重跑/检索见 `docs/OCR_README.md` |
+| 8 | 大地巡旅 PDF（`resources/local/大地巡旅/`）没有文字层 | `pdftotext` 输出为空；2026-10-24 已用 `tesseract-ocr` + `tesseract-ocr-chi-sim` 重跑 454 页，449 页有正文。页面图在 `images/`，逐页与合并文本在 `text/`（`text/大地巡旅_OCR.txt`，约 47.7 万字）。重跑/检索见 `docs/OCR_README.md` |
 | 9 | `EP10/ENTRY`、`CR-BEG/NBT` 等页面没有台词 | 模块会记「无正文」，不会每次重抓；这是 wiki 本身只有演出/视频 |
 | 10 | 索引与清单是自动生成的 | 不要手改 `_索引.md` / `_manifest.json`；重跑对应模块即可 |
 
@@ -570,13 +580,17 @@ PY
 **新增采集器**：在 `prts_tool/collectors/` 放一个继承 `Collector` 并 `@register` 的类，
 CLI 会自动发现；同时在本 README 的模块表、输出树和 `CHANGELOG.md` 里补一行。
 
-**PDF / 扫描件**：`resources/local/大地巡旅/大地巡旅_OCR.txt` 是《大地巡旅》的 OCR 全文；
+**PDF / 扫描件**：`resources/local/大地巡旅/text/大地巡旅_OCR.txt` 是《大地巡旅》的 OCR 全文；
 重新 OCR 用 `python -m prts_tool.ocr_book`（增量）或加 `--force`（全量），
 细节见 [OCR 说明](docs/OCR_README.md)。
 
 ### 8.3 版本日志
 
 完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。最近更新：
+
+* **2.6.0（2026-10-25）**：泰拉年表接入 `activity` 采集器并输出到
+  `prts_text/泰拉年表.txt`；《大地巡旅》页面图与 OCR 文本分存 `images/`、`text/`，
+  旧布局自动迁移；TUI 新增 `next` 打开本目录下一个文件。
 
 * **2.5.5（2026-10-25）**：TUI 新增 `back` 命令（阅读区 `Ctrl+O`），按页面栈返回
   上一个打开的文档、搜索结果、历史/差异/帮助等视图。
@@ -654,7 +668,7 @@ resources/collected/prts_text/   文本数据（默认输出根，目录名与�
 └── reclamation/             生息演算 3 个场次
 resources/collected/terra/     泰拉记事社（说明.txt + 索引，图片靠 terra-images 抓）
 resources/ocr/terra_text/    terra 图片的 OCR 文本
-resources/local/大地巡旅/           整本 PDF、页面图、OCR 文本
+resources/local/大地巡旅/           整本 PDF；images/ 页面图；text/ 逐页与合并 OCR
 prts-wiki-map/               站点结构勘察资料（数据来源与坑位；与本工具同级，勿删）
 ```
 

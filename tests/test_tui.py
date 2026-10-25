@@ -15,7 +15,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from prts_tool.library import relative_id
-from prts_tool.paths import RESOURCES_DIR
+from prts_tool.paths import BOOK_DIR, RESOURCES_DIR
 from prts_tool.tui import (CommandCompleter, TerminalLibrary, parse_index,
                            parse_update_request)
 
@@ -75,6 +75,7 @@ def test_command_completion():
     assert _completions("images m") == ["missing"]
     assert "operator" in _completions("preview o")
     assert "back" in _completions("bac")
+    assert "next" in _completions("nex")
     assert _completions("update --mode ") == ["changed", "missing", "force"]
     assert _completions("update avg -m f") == ["force"]
     assert _completions("update --mode=f") == ["force"]
@@ -288,6 +289,35 @@ def test_back_restores_result_list(tui):
     assert tui.results_mode
     assert tui.results == items
     assert tui.result_rows[2] == 0
+
+
+def test_next_opens_next_file_in_same_directory(tui):
+    pages = sorted((RESOURCES_DIR / "local" / "大地巡旅" / "text" / "pages").glob("page_*.txt"))
+    if len(pages) < 2:
+        pytest.skip("需要至少两个本地文本文件")
+    first, second = pages[0], pages[1]
+    tui._open(first)
+    tui._execute("next")
+    assert tui.selected == second
+    assert tui._status_text.startswith("下一个")
+
+    tui.selected = pages[-1]
+    tui._execute("next")
+    assert "最后一个文件" in tui._status_text
+
+
+def test_next_without_open_file(tui):
+    tui.selected = None
+    tui._execute("next")
+    assert "请先打开一个文件" in tui._status_text
+
+
+def test_page_reads_ocr_from_separated_text_directory(tui):
+    pdf = next(BOOK_DIR.glob("*.pdf"))
+    tui.selected = pdf
+    tui._page("1")
+    assert tui.reader.text.startswith("===== 第 1 页 =====")
+    assert "PDF 第 1 页 OCR" in tui._status_text
 
 
 def test_update_streams_output_and_reports(tui, monkeypatch):

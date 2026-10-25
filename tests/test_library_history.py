@@ -10,7 +10,7 @@ from prts_tool.cli import build_cli
 from prts_tool.history import HistoryCapture, diff_rows, diff_text, import_local, load_run
 from prts_tool.jobs import UpdateCapture, update_command_sequence
 from prts_tool.library import append_opinion, note_location, read_opinions, save_note, search_text
-from prts_tool.paths import BOOK_DIR, DEFAULT_TEXT_DIR, PROJECT_DIR
+from prts_tool.paths import BOOK_TEXT_DIR, DEFAULT_TEXT_DIR, PROJECT_DIR
 
 
 class LibraryHistoryTest(unittest.TestCase):
@@ -36,7 +36,7 @@ class LibraryHistoryTest(unittest.TestCase):
                     pass
 
     def test_search_maps_book_ocr_hit_to_page(self):
-        path = BOOK_DIR / "大地巡旅_OCR.txt"
+        path = BOOK_TEXT_DIR / "大地巡旅_OCR.txt"
         hits = search_text("伊比利亚", files=iter([path]), limit=20)
         self.assertTrue(hits)
         self.assertTrue(all(hit.page and hit.line > 0 for hit in hits))

@@ -33,7 +33,10 @@ class ResourcePathsTest(unittest.TestCase):
         self.assertEqual(ocr_book.DEFAULT_PDF.parent, BOOK_DIR)
         self.assertTrue(ocr_book.DEFAULT_PDF.is_file())
         self.assertTrue(ocr_book.DEFAULT_TXT.is_file())
-        self.assertTrue(ocr_book.DEFAULT_DIR.is_dir())
+        self.assertEqual(ocr_book.DEFAULT_TXT.parent, ocr_book.DEFAULT_TEXT_DIR)
+        self.assertTrue(ocr_book.DEFAULT_IMAGE_DIR.is_dir())
+        self.assertTrue(ocr_book.DEFAULT_PAGE_TEXT_DIR.is_dir())
+        self.assertFalse((BOOK_DIR / "大地巡旅_OCR_pages").exists())
 
         seen = 0
         for article in TERRA_OCR_DIR.rglob("*.md"):
@@ -44,6 +47,29 @@ class ResourcePathsTest(unittest.TestCase):
                 self.assertTrue(path.is_file(), f"{article}: {target}")
                 seen += 1
         self.assertGreaterEqual(seen, 169)
+
+
+class OcrLayoutMigrationTest(unittest.TestCase):
+    def test_old_mixed_layout_moves_to_images_and_text(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp:
+            book = Path(temp)
+            legacy = book / "大地巡旅_OCR_pages"
+            legacy.mkdir()
+            (legacy / "page_0001.jpg").write_bytes(b"jpg")
+            (legacy / "page_0001.txt").write_text("正文\n", encoding="utf-8")
+            (legacy / "manifest.tsv").write_text("page\tpath\tchars\n", encoding="utf-8")
+            (book / "大地巡旅_OCR.txt").write_text("全文\n", encoding="utf-8")
+
+            moved = ocr_book.migrate_layout(book)
+
+            self.assertEqual(len(moved), 4)
+            self.assertTrue((book / "images" / "page_0001.jpg").is_file())
+            self.assertTrue((book / "text" / "pages" / "page_0001.txt").is_file())
+            self.assertTrue((book / "text" / "manifest.tsv").is_file())
+            self.assertTrue((book / "text" / "大地巡旅_OCR.txt").is_file())
+            self.assertFalse(legacy.exists())
 
 
 if __name__ == "__main__":
