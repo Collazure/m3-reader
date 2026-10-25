@@ -27,6 +27,7 @@ try:
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import Dimension, HSplit, Layout, VSplit
+    from prompt_toolkit.layout.processors import BeforeInput
     from prompt_toolkit.styles import Style
     from prompt_toolkit.widgets import Frame, Label, TextArea
 except ImportError as exc:  # pragma: no cover
@@ -36,6 +37,21 @@ except ImportError as exc:  # pragma: no cover
 MODULES = ("all", "avg", "stage", "activity", "operator", "furniture", "enemies",
            "reclamation", "roguelike", "terra")
 MODES = ("changed", "missing", "force")
+# Single-argument commands: when called without an argument, ask for it on a
+# ``command:`` prompt instead of failing.  Empty Enter leaves the prompt.
+PROMPT_COMMANDS = {
+    "find": "搜索词",
+    "search": "搜索词",
+    "jump": "行号",
+    "go": "结果序号",
+    "run": "运行序号",
+    "diff": "差异序号",
+    "page": "页码",
+    "note": "意见内容",
+    "note+": "续写内容",
+    "import": "文件路径",
+    "replace": "文件路径",
+}
 COMMANDS = {
     "find": "当前文件查找",
     "search": "全库搜索",
@@ -62,23 +78,36 @@ COMMANDS = {
 HELP = """M3 Reader 终端阅读器
 
 焦点与快捷键
-  启动后直接处于命令栏；在目录或阅读区敲任意字符也会回到命令栏。
-  Tab              目录 ↔ 阅读切换；命令栏中 Tab 补全
-  Enter            执行命令（目录中为展开或打开文件）
-  Backspace        编辑当前命令
-  Ctrl+U           清空当前命令（不在命令栏时为“更新”）
-  Ctrl+C           清空当前命令；更新中则取消更新
-  ↑ / ↓            命令历史；Ctrl+P / Ctrl+N 同样可用
-  PageUp / PageDown 滚动阅读区
-  Esc              取消补全；命令为空时返回目录
+  启动后直接处于命令栏；在目录区敲任意字符也会回到命令栏。
+  阅读区是只读 vim 模式：用 `:` 或 Alt+3 回到命令栏。
+  Alt+1 / Alt+2 / Alt+3   目录 / 阅读 / 命令
+  Alt+← / Alt+→           循环焦点
+  Tab                     命令栏补全（唯一匹配立即生效）
+  Enter                   执行命令；搜索结果中打开选中项
+  Backspace               编辑当前命令
+  Ctrl+U                  清空当前命令（目录区为“更新”，阅读区为半页上）
+  Ctrl+C                  清空或退出参数输入；更新中取消更新
+  ↑ / ↓                   命令历史；Ctrl+P / Ctrl+N 同样可用
+  PageUp / PageDown       滚动阅读区（阅读区空格下翻）
+  Esc                     取消补全或参数输入；命令为空时返回目录
   Ctrl+F / Ctrl+G / Ctrl+H / Ctrl+N
-                   在目录或阅读区：当前文件查找 / 全库搜索 / 历史 / 写意见
-  Ctrl+Q           退出
+                          在目录或阅读区：当前文件查找 / 全库搜索 / 历史 / 写意见
+  Ctrl+Q                  退出
+
+阅读区（只读 vim 操作，不需要 Enter）
+  h j k l        左右上下移动         0 / $      行首 / 行尾
+  w / b          下一个 / 上一个词    gg / G     文件开头 / 结尾
+  3G             跳到第 3 行          5j / 2k    移动 5 行 / 2 行
+  Ctrl+D / Ctrl+U  半页下 / 上        Ctrl+B     上翻一页
+  n / N          下一个 / 上一个匹配  `:`        回到命令栏
+  / 查找、? 帮助、空格下翻；不提供 a/i/x/r 等修改源文件的操作。
+  阅读区左侧显示绝对行号。
 
 命令栏（Tab 补全，Enter 执行）
-  find 词语                  当前文件查找
-  search 词语                全库搜索；随后 go 序号 打开结果
-  jump 行号                  跳到当前文本的指定行
+  find [词语]                当前文件查找；省略词语时提示 “find:”
+  search [词语]              全库搜索；省略词语时提示 “search:”
+  jump [行号]                跳到当前文本的指定行
+  go [序号]                  打开上一次搜索的结果
   update [模块] [模式] [--dry-run]
                              更新采集内容，如 update avg changed
                              update avg --force；preview avg 只预览
@@ -89,10 +118,16 @@ HELP = """M3 Reader 终端阅读器
   notes                      查看本地意见
   note 内容                  直接写入本地意见文件
   note 内容 + note+ 续写 + save  分多行写意见；save 保存草稿
-  page 页号                  阅读《大地巡旅》PDF 对应页的 OCR
+  page [页号]                阅读《大地巡旅》PDF 对应页的 OCR
   open                       使用系统查看器打开当前图片或 PDF
-  import 文件路径            导入本地资料；replace 文件路径 替换当前本地资料
+  import [路径]              导入本地资料；replace [路径] 替换当前本地资料
   help / quit                帮助 / 退出
+
+搜索与查找
+  结果每条占两行：第一行是文档路径与行号，第二行是匹配内容。
+  ↑/↓ 选择条目，Enter 直接打开对应文档并跳到该行；输入字符或按 `:` 回到命令栏。
+  单参数命令省略参数时会进入 “命令:” 提示，输入后回车执行；直接回车退出：
+  find / search / jump / go / run / diff / page / note / note+ / import / replace。
 
 模块：all, avg, stage, activity, operator, furniture, enemies, reclamation, roguelike, terra
 模式：changed, missing, force。终端字体在终端设置中选择 Maple Mono NF CN。"""
@@ -246,14 +281,19 @@ class CommandCompleter(Completer):
 class TerminalLibrary:
     def __init__(self, *, input=None, output=None):
         self.tree = TextArea(read_only=True, scrollbar=True, wrap_lines=False)
-        self.reader = TextArea(read_only=True, scrollbar=True, wrap_lines=True)
-        self._status_text = "就绪 · 直接输入命令 · Tab 切换焦点 · help 查看"
+        self.reader = TextArea(read_only=True, scrollbar=True, wrap_lines=True, line_numbers=True)
+        self._status_text = "就绪 · 直接输入命令 · Alt+1/2/3 切换焦点 · help 查看"
         self._status_level = "status.info"
-        self.command = TextArea(height=1, prompt=" › ", multiline=False,
+        self.input_mode: str | None = None
+        self._command_prompt = " › "
+        self._vim_count = ""
+        self.last_find = ""
+        self.command = TextArea(height=1, prompt="", multiline=False,
                                 history=InMemoryHistory(),
                                 completer=CommandCompleter(),
-                                complete_while_typing=False)
-        self.command.buffer.accept_handler = self._accept
+                                complete_while_typing=False,
+                                input_processors=[BeforeInput(
+                                    lambda: self._command_prompt, style="class:command.prompt")])
         self.tree.control.key_bindings = self._pane_keys("tree")
         self.reader.control.key_bindings = self._pane_keys("reader")
         self.status = Label(text=lambda: [(f"class:{self._status_level}", f" {self._status_text} ")],
@@ -277,6 +317,7 @@ class TerminalLibrary:
                                    "status.ok": "bg:#1f3a2a #9ad27f bold",
                                    "status.warn": "bg:#3a3520 #e0c46c bold",
                                    "status.error": "bg:#3a2323 #f08c8c bold",
+                                   "command.prompt": "bold #cce08c",
                                }))
         self.directories: dict[tuple[str, ...], set[str]] = {}
         self.file_nodes: dict[tuple[str, ...], Path] = {}
@@ -285,6 +326,9 @@ class TerminalLibrary:
         self.selected: Path | None = None
         self.search_hits = []
         self.search_running = False
+        self.results: list[dict] = []
+        self.result_rows: list[int | None] = []
+        self.results_mode = False
         self.runs = []
         self.active_run = None
         self.note_draft: list[str] = []
@@ -299,6 +343,7 @@ class TerminalLibrary:
         self._last_flush = 0.0
         self._book_text: str | None = None
         self._book_pages: dict[int, int] = {}
+        self.reader.buffer.on_cursor_position_changed += self._reader_cursor_moved
         self._reload_catalog()
         self.reader.text = HELP
 
@@ -313,17 +358,21 @@ class TerminalLibrary:
         """
         keys = KeyBindings()
         pane = self.reader if kind == "reader" else self.tree
+        self._add_focus_keys(keys)
 
-        @keys.add("n")
-        @keys.add("N")
-        def _(event):
-            self.app.layout.focus(self.command)
-            self.command.buffer.insert_text(event.data)
-            self._set_status("焦点：命令 · 输入 help 查看用法", "status.info")
+        if kind == "reader":
+            self._add_vim_keys(keys)
+        else:
+            @keys.add("n")
+            @keys.add("N")
+            def _(event):
+                self.app.layout.focus(self.command)
+                self.command.buffer.insert_text(event.data)
+                self._set_status("焦点：命令 · 输入 help 查看用法", "status.info")
 
         @keys.add("/")
         def _(event):
-            self._prompt("find ", "输入词语后回车；Esc 返回")
+            self._execute("find")
 
         @keys.add("?")
         def _(event):
@@ -345,6 +394,196 @@ class TerminalLibrary:
             pane.buffer.cursor_down(10)
 
         return keys
+
+    def _add_focus_keys(self, keys: KeyBindings):
+        """Alt shortcuts for focus switching (Tab stays reserved for completion)."""
+
+        @keys.add("escape", "1")
+        def _(event):
+            self._vim_count = ""
+            self.app.layout.focus(self.tree)
+            self._set_status("焦点：目录 · Alt+1/2/3 切换", "status.info")
+
+        @keys.add("escape", "2")
+        def _(event):
+            self._vim_count = ""
+            self.app.layout.focus(self.reader)
+            self._set_status("焦点：阅读 · hjkl 移动 · gg/G 首尾 · 3G 指定行", "status.info")
+
+        @keys.add("escape", "3")
+        def _(event):
+            self._vim_count = ""
+            self.app.layout.focus(self.command)
+            self._set_status("焦点：命令 · Alt+1/2/3 切换", "status.info")
+
+        @keys.add("escape", "left")
+        def _(event):
+            self._cycle_focus(-1)
+
+        @keys.add("escape", "right")
+        def _(event):
+            self._cycle_focus(1)
+
+    def _cycle_focus(self, delta: int):
+        order = (self.tree, self.reader, self.command)
+        current = self.app.layout.current_window
+        index = next((i for i, area in enumerate(order) if area.window is current), 0)
+        self.app.layout.focus(order[(index + delta) % len(order)])
+        self._set_status(f"焦点：{self._focus_name()} · Alt+1/2/3 切换", "status.info")
+
+    # -------------------------------------------------------------- vim 只读操作
+    def _vim_count_value(self) -> int | None:
+        if not self._vim_count:
+            return None
+        value = int(self._vim_count)
+        self._vim_count = ""
+        return value
+
+    def _vim_status(self) -> None:
+        if self.results_mode:
+            self._update_result_status()
+            return
+        document = self.reader.buffer.document
+        self._set_status(
+            f"第 {document.cursor_position_row + 1} / {document.line_count} 行 · "
+            "hjkl 移动 · gg/G 首尾 · 3G 指定行 · n/N 下一个匹配", "status.info")
+
+    def _vim_goto_line(self, line: int) -> None:
+        total = self.reader.buffer.document.line_count
+        line = max(1, min(int(line), total))
+        self._jump_buffer(self.reader, line)
+        if self.results_mode:
+            self._update_result_status()
+        else:
+            self._set_status(f"第 {line} / {total} 行", "status.info")
+
+    def _vim_find_next(self, backwards: bool) -> None:
+        term = self.last_find
+        if not term:
+            self._set_status("先用 / 或 find 搜索，再用 n/N 跳转", "status.warn")
+            return
+        if not self.viewing_resource:
+            self._set_status("请先打开文档，再用 n/N 跳转", "status.warn")
+            return
+        text = self.reader.text
+        haystack = text.casefold()
+        needle = term.casefold()
+        current = self.reader.buffer.cursor_position
+        if backwards:
+            position = haystack.rfind(needle, 0, max(0, current - 1))
+            if position < 0:
+                position = haystack.rfind(needle)
+        else:
+            position = haystack.find(needle, current + 1)
+            if position < 0:
+                position = haystack.find(needle)
+        if position < 0:
+            self._set_status(f"没有匹配：{term}", "status.warn")
+            return
+        self.reader.buffer.cursor_position = position
+        line = text.count("\n", 0, position) + 1
+        self._set_status(f"匹配 · 第 {line} 行 · {term}", "status.ok")
+
+    def _add_vim_keys(self, keys: KeyBindings) -> None:
+        """Read-only vim motions for the reader pane; no editing operations."""
+        buffer = self.reader.buffer
+
+        def motion(action, *, page: bool = False) -> None:
+            count = self._vim_count_value() or 1
+            action(count * 10 if page else count)
+            self._vim_status()
+
+        @keys.add("h")
+        def _(event):
+            motion(lambda n: buffer.cursor_left(count=n))
+
+        @keys.add("l")
+        def _(event):
+            motion(lambda n: buffer.cursor_right(count=n))
+
+        @keys.add("j")
+        def _(event):
+            motion(lambda n: buffer.cursor_down(count=n))
+
+        @keys.add("k")
+        def _(event):
+            motion(lambda n: buffer.cursor_up(count=n))
+
+        @keys.add("0")
+        def _(event):
+            if self._vim_count:
+                self._vim_count += "0"
+                self._set_status(f"计数：{self._vim_count} · 等待动作", "status.info")
+            else:
+                buffer.cursor_position += buffer.document.get_start_of_line_position()
+                self._vim_status()
+
+        @keys.add("$")
+        def _(event):
+            buffer.cursor_position += buffer.document.get_end_of_line_position()
+            self._vim_status()
+
+        for digit in "123456789":
+            @keys.add(digit)
+            def _(event):
+                self._vim_count += event.data
+                self._set_status(f"计数：{self._vim_count} · 等待动作", "status.info")
+
+        @keys.add("g", "g")
+        def _(event):
+            self._vim_goto_line(self._vim_count_value() or 1)
+
+        @keys.add("G")
+        def _(event):
+            self._vim_goto_line(self._vim_count_value() or buffer.document.line_count)
+
+        @keys.add("w")
+        def _(event):
+            count = self._vim_count_value() or 1
+            offset = buffer.document.find_next_word_beginning(count=count)
+            if offset:
+                buffer.cursor_position += offset
+            self._vim_status()
+
+        @keys.add("b")
+        def _(event):
+            count = self._vim_count_value() or 1
+            offset = buffer.document.find_previous_word_beginning(count=count)
+            if offset:
+                buffer.cursor_position += offset
+            self._vim_status()
+
+        @keys.add("c-d")
+        def _(event):
+            motion(lambda n: buffer.cursor_down(count=n), page=True)
+
+        @keys.add("c-u")
+        def _(event):
+            motion(lambda n: buffer.cursor_up(count=n), page=True)
+
+        @keys.add("c-b")
+        def _(event):
+            motion(lambda n: buffer.cursor_up(count=n), page=True)
+
+        @keys.add(":")
+        def _(event):
+            self._vim_count = ""
+            self.app.layout.focus(self.command)
+            self._set_status("命令 · Enter 执行 · Alt+2 返回阅读", "status.info")
+
+        @keys.add("n")
+        def _(event):
+            self._vim_find_next(False)
+
+        @keys.add("N")
+        def _(event):
+            self._vim_find_next(True)
+
+        @keys.add("escape")
+        def _(event):
+            if self._vim_count:
+                self._vim_count = ""
+                self._set_status("已清除计数", "status.info")
 
     def _focus_name(self) -> str:
         try:
@@ -372,6 +611,9 @@ class TerminalLibrary:
 
     def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = False) -> None:
         self.viewing_resource = False
+        self.results_mode = False
+        self.results = []
+        self.result_rows = []
         self.reader.text = body
         self.reader.buffer.cursor_position = 0
         self._set_status(title, level)
@@ -396,6 +638,7 @@ class TerminalLibrary:
         command_focus = Condition(lambda: self.app.layout.current_window is self.command.window)
         tree_focus = Condition(lambda: self.app.layout.current_window is self.tree.window)
         reader_focus = Condition(lambda: self.app.layout.current_window is self.reader.window)
+        self._add_focus_keys(keys)
 
         @keys.add("c-q")
         def _(event):
@@ -407,10 +650,7 @@ class TerminalLibrary:
 
         @keys.add("tab", filter=~command_focus)
         def _(event):
-            focus = event.app.layout.current_window
-            target = self.reader if focus == self.tree.window else self.command if focus == self.reader.window else self.tree
-            event.app.layout.focus(target)
-            self._set_status(f"焦点：{self._focus_name()} · Tab 切换", "status.info")
+            self._set_status("Tab 用于命令补全；Alt+1/2/3 切换目录/阅读/命令", "status.info")
 
         @keys.add("enter", filter=command_focus)
         def _(event):
@@ -420,8 +660,19 @@ class TerminalLibrary:
         def _(event):
             self._activate_tree_row()
 
+        @keys.add("enter", filter=reader_focus)
+        def _(event):
+            if self.results_mode:
+                try:
+                    self._open_selected_result()
+                except (OSError, ValueError, KeyError) as exc:
+                    self._set_status(f"打开失败：{exc}", "status.error")
+
         @keys.add("escape", filter=command_focus)
         def _(event):
+            if self.input_mode:
+                self._exit_input_mode(f"已退出 {self.input_mode} 输入")
+                return
             if self.command.buffer.complete_state:
                 self.command.buffer.cancel_completion()
                 return
@@ -430,12 +681,14 @@ class TerminalLibrary:
                 self._set_status("命令已清空", "status.info")
                 return
             event.app.layout.focus(self.tree)
-            self._set_status("已返回目录 · Tab 切换焦点", "status.info")
+            self._set_status("已返回目录 · Alt+1/2/3 切换焦点", "status.info")
 
         @keys.add("c-c")
         def _(event):
             if self.update_active:
                 self._cancel_update()
+            elif self.input_mode:
+                self._exit_input_mode(f"已退出 {self.input_mode} 输入")
             elif command_focus():
                 if self.command.text:
                     self.command.text = ""
@@ -479,7 +732,7 @@ class TerminalLibrary:
             self.reader.buffer.cursor_down(10)
             self._set_status("阅读区 · PageUp/PageDown 滚动 · 输入字符返回命令", "status.info")
 
-        @keys.add(Keys.Any, filter=tree_focus | reader_focus)
+        @keys.add(Keys.Any, filter=tree_focus)
         def _(event):
             self.app.layout.focus(self.command)
             self.command.buffer.insert_text(event.data)
@@ -583,6 +836,9 @@ class TerminalLibrary:
     # -------------------------------------------------------------- 命令分发
     def _complete_command(self):
         """Tab completion: apply a unique match immediately (no async lag)."""
+        if self.input_mode:
+            self._set_status(f"{self.input_mode}: 输入参数后回车；直接回车退出", "status.info")
+            return
         buffer = self.command.buffer
         if buffer.complete_state:
             buffer.complete_next()
@@ -599,20 +855,51 @@ class TerminalLibrary:
         buffer = self.command.buffer
         if buffer.complete_state:
             buffer.cancel_completion()
-        buffer.validate_and_handle()
-
-    def _accept(self, buffer):
-        command = buffer.text.strip()
-        if command:
-            self._execute(command)
-        else:
+        text = buffer.text.strip()
+        mode = self.input_mode
+        if mode:
+            buffer.reset()
+            self._exit_input_mode()
+            if not text:
+                self._set_status(f"已退出 {mode} 输入", "status.info")
+                return
+            buffer.history.append_string(f"{mode} {text}")
+            self._execute(f"{mode} {text}", allow_prompt=False)
+            return
+        if not text:
+            buffer.reset()
             self._set_status("请输入命令（help 查看用法）", "status.warn")
-        return False
+            return
+        buffer.append_to_history()
+        buffer.reset()
+        self._execute(text)
 
-    def _execute(self, raw: str):
+    def _enter_input_mode(self, command: str):
+        """Switch the command line to ``command:`` and wait for its argument."""
+        self.input_mode = command
+        self._command_prompt = f"{command}: "
+        self.command.text = ""
+        self.command.buffer.cursor_position = 0
+        self.app.layout.focus(self.command)
+        label = PROMPT_COMMANDS.get(command, "内容")
+        self._set_status(f"{command}: 输入{label}后回车；直接回车退出", "status.info")
+        self.app.invalidate()
+
+    def _exit_input_mode(self, message: str | None = None):
+        self.input_mode = None
+        self._command_prompt = " › "
+        self.command.text = ""
+        if message:
+            self._set_status(message, "status.info")
+        self.app.invalidate()
+
+    def _execute(self, raw: str, *, allow_prompt: bool = True):
         command, _, rest = raw.strip().partition(" ")
         command = command.casefold()
         rest = rest.strip()
+        if allow_prompt and not rest and command in PROMPT_COMMANDS:
+            self._enter_input_mode(command)
+            return
         try:
             if command in {"quit", "q"}:
                 self.app.exit()
@@ -668,18 +955,36 @@ class TerminalLibrary:
     def _find(self, term: str):
         if not term:
             raise ValueError("请输入搜索词")
-        body = self.reader.text
-        start = self.reader.buffer.cursor_position + 1
-        position = body.casefold().find(term.casefold(), start)
-        if position < 0:
-            position = body.casefold().find(term.casefold())
-        if position < 0:
-            self._set_status(f"当前文本没有匹配：{term}", "status.warn")
-        else:
-            self.reader.buffer.cursor_position = position
-            self.app.layout.focus(self.reader)
-            line = body.count("\n", 0, position) + 1
-            self._set_status(f"文件内匹配 · 第 {line} 行 · {term}", "status.ok")
+        self.last_find = term
+        path = self.selected
+        if not path or path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
+            raise ValueError("请先打开一个文本文件再使用 find")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        resource_id = relative_id(path)
+        items: list[dict] = []
+        limit = 500
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if term.casefold() not in line.casefold():
+                continue
+            content = line.strip()
+            if len(content) > 220:
+                content = content[:219] + "…"
+            items.append({
+                "head": f"{line_no:>6}. {resource_id}:{line_no}",
+                "body": f"        {content}",
+                "resource_id": resource_id,
+                "line": line_no,
+                "page": None,
+            })
+            if len(items) >= limit:
+                break
+        if not items:
+            self._set_status(f"文件内没有匹配：{term}", "status.warn")
+            return
+        suffix = "（达到上限）" if len(items) >= limit else ""
+        self._show_result_list(
+            f"文件内搜索：{term} · {len(items)} 处{suffix} · ↑↓ 选择 · Enter 跳转 · 输入字符返回命令",
+            items)
 
     def _jump(self, rest: str):
         if not self.reader.text.strip():
@@ -692,6 +997,7 @@ class TerminalLibrary:
 
     async def _search(self, term: str):
         self.search_running = True
+        self.last_find = term
         self._set_status(f"正在搜索全部资源：{term} …", "status.warn")
         try:
             hits = await asyncio.to_thread(search_text, term, limit=200)
@@ -701,16 +1007,24 @@ class TerminalLibrary:
         finally:
             self.search_running = False
         self.search_hits = hits
-        lines = [f"全局搜索：{term} · {len(hits)} 条（上限 200）",
-                 "输入 go 序号 打开命中行。", ""]
-        if hits:
-            lines.extend(f"{i:>3}. {hit.resource_id}:{hit.line}" +
-                         (f" [PDF 第 {hit.page} 页]" if hit.page else "") +
-                         f"  {hit.excerpt}" for i, hit in enumerate(hits, 1))
+        items = []
+        for index, hit in enumerate(hits, 1):
+            head = f"{index:>4}. {hit.resource_id}:{hit.line}"
+            if hit.page:
+                head += f" · PDF 第 {hit.page} 页"
+            items.append({
+                "head": head,
+                "body": f"      {hit.excerpt}",
+                "resource_id": hit.resource_id,
+                "line": hit.line,
+                "page": hit.page,
+            })
+        if items:
+            title = (f"搜索：{term} · {len(items)} 条 · ↑↓ 选择 · Enter 打开 · 输入字符返回命令")
+            self._show_result_list(title, items, level="status.ok")
         else:
-            lines.append("没有匹配，换一个词试试。")
-        self._show(f"搜索完成 · {term} · {len(hits)} 条",
-                   "\n".join(lines), level="status.ok" if hits else "status.warn")
+            self._show_result_list(f"搜索：{term} · 没有匹配 · 输入字符返回命令", [],
+                                   level="status.warn")
 
     def _go(self, rest: str):
         if not self.search_hits:
@@ -721,6 +1035,57 @@ class TerminalLibrary:
         if hit.page:
             self.current_pdf_page = hit.page
         self._set_status(f"已打开搜索结果 {number} · {hit.resource_id}:{hit.line}", "status.ok")
+
+    # -------------------------------------------------------------- 结果列表
+    def _show_result_list(self, title: str, items: list[dict], *,
+                          level: str = "status.ok") -> None:
+        """Show two-line results: path/index first, matched content second."""
+        lines = [title, ""]
+        rows: list[int | None] = [None, None]
+        for index, item in enumerate(items):
+            lines.append(item["head"])
+            rows.append(index)
+            lines.append(item["body"])
+            rows.append(index)
+        self._show(title, "\n".join(lines), level=level, focus=True)
+        self.results = items
+        self.result_rows = rows
+        self.results_mode = True
+        if items:
+            self._jump_buffer(self.reader, 3)     # header, blank, first head
+            self._update_result_status()
+
+    def _update_result_status(self) -> None:
+        if not self.results_mode:
+            return
+        row = self.reader.buffer.document.cursor_position_row
+        index = self.result_rows[row] if row < len(self.result_rows) else None
+        if index is None:
+            self._set_status(f"搜索结果 · {len(self.results)} 条 · ↑↓ 选择 · Enter 打开",
+                             "status.info")
+            return
+        item = self.results[index]
+        self._set_status(f"第 {index + 1}/{len(self.results)} 条 · {item['head']} · Enter 打开",
+                         "status.info")
+
+    def _reader_cursor_moved(self, _buffer=None) -> None:
+        if self.results_mode:
+            self._update_result_status()
+
+    def _open_selected_result(self) -> None:
+        if not self.results_mode or not self.results:
+            return
+        row = self.reader.buffer.document.cursor_position_row
+        index = self.result_rows[row] if row < len(self.result_rows) else None
+        if index is None:
+            self._set_status("把光标移到某条搜索结果上再按 Enter", "status.warn")
+            return
+        item = self.results[index]
+        self.results_mode = False
+        self._open(resource_path(item["resource_id"]), int(item["line"]))
+        if item.get("page"):
+            self.current_pdf_page = int(item["page"])
+        self._set_status(f"已打开 · {item['head']}", "status.ok")
 
     # -------------------------------------------------------------- 更新命令
     async def _run_update(self, command: str, rest: str):

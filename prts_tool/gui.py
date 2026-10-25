@@ -114,6 +114,9 @@ class TextReader(QPlainTextEdit):
 
     def _margin(self, *_):
         self.setViewportMargins(self.line_width(), 0, 0, 0)
+        self.line_area.setGeometry(0, self.contentsRect().top(),
+                                   self.line_width(), self.contentsRect().height())
+        self.line_area.show()
 
     def _scroll_margin(self, rect, dy):
         if dy:

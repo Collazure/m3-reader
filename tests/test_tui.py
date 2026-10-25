@@ -14,6 +14,8 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from prts_tool.library import relative_id
+from prts_tool.paths import RESOURCES_DIR
 from prts_tool.tui import (CommandCompleter, TerminalLibrary, parse_index,
                            parse_update_request)
 
@@ -135,15 +137,115 @@ def test_feedback_and_guidance(tui):
 
 def test_accept_records_history_and_clears_input(tui):
     tui.command.text = "help"
-    tui.command.buffer.validate_and_handle()
+    tui._submit_command()
     assert "help" in tui.command.buffer.history.get_strings()
     assert tui.command.text == ""
 
 
 def test_empty_command_hint(tui):
     tui.command.text = ""
-    tui.command.buffer.validate_and_handle()
+    tui._submit_command()
     assert "请输入命令" in tui._status_text
+
+
+@pytest.mark.parametrize("command,prompt", [
+    ("find", "find: "),
+    ("search", "search: "),
+    ("page", "page: "),
+    ("note", "note: "),
+    ("note+", "note+: "),
+    ("import", "import: "),
+])
+def test_single_arg_command_enters_prompt_mode(tui, command, prompt):
+    tui._execute(command)
+    assert tui.input_mode == command
+    assert tui._command_prompt == prompt
+    assert tui.command.text == ""
+    assert "直接回车退出" in tui._status_text
+
+
+def test_empty_enter_leaves_prompt_mode(tui):
+    tui._execute("search")
+    tui._submit_command()
+    assert tui.input_mode is None
+    assert tui._command_prompt == " › "
+    assert "已退出 search 输入" in tui._status_text
+
+
+def test_prompt_value_runs_command_and_restores_prompt(tui, monkeypatch):
+    tui._execute("note")
+    calls = []
+    monkeypatch.setattr(tui, "_execute",
+                        lambda raw, allow_prompt=True: calls.append((raw, allow_prompt)))
+    tui.command.text = "一条意见"
+    tui._submit_command()
+    assert calls == [("note 一条意见", False)]
+    assert tui.input_mode is None
+    assert tui._command_prompt == " › "
+
+
+def test_alt_focus_bindings_exist(tui):
+    for keys in (("escape", "1"), ("escape", "2"), ("escape", "3"),
+                 ("escape", "left"), ("escape", "right")):
+        assert tui.app.key_bindings.get_bindings_for_keys(keys)
+        assert tui.reader.control.key_bindings.get_bindings_for_keys(keys)
+
+
+def test_result_list_is_two_lines_and_enter_opens(tui):
+    path = RESOURCES_DIR / "README.md"
+    resource_id = relative_id(path)
+    items = [
+        {"head": f"1. {resource_id}:1", "body": "  第一条内容",
+         "resource_id": resource_id, "line": 1, "page": None},
+        {"head": f"2. {resource_id}:2", "body": "  第二条内容",
+         "resource_id": resource_id, "line": 2, "page": None},
+    ]
+    tui._show_result_list("测试结果", items)
+    lines = tui.reader.text.splitlines()
+    assert lines[2] == items[0]["head"]
+    assert lines[3] == items[0]["body"]
+    assert lines[4] == items[1]["head"]
+    assert tui.result_rows[2] == 0
+    assert tui.result_rows[3] == 0
+    assert tui.result_rows[4] == 1
+    tui._jump_buffer(tui.reader, 5)
+    tui._open_selected_result()
+    assert not tui.results_mode
+    assert tui.selected == path
+    assert "已打开" in tui._status_text
+
+
+def test_find_lists_matches_with_line_numbers(tui):
+    path = RESOURCES_DIR / "README.md"
+    tui.selected = path
+    term = path.read_text(encoding="utf-8").splitlines()[0][:2] or "资源"
+    tui._find(term)
+    assert tui.results_mode
+    assert tui.results
+    assert tui.last_find == term
+    assert all(item["line"] >= 1 for item in tui.results)
+
+
+def test_reader_has_line_numbers_and_vim_bindings(tui):
+    assert tui.reader.window.left_margins      # NumberedMargin
+    keys = tui.reader.control.key_bindings
+    for key in ("h", "j", "k", "l", "0", "$", "w", "b", "G", ":", "n", "N"):
+        assert keys.get_bindings_for_keys((key,))
+    assert keys.get_bindings_for_keys(("g", "g"))
+
+
+def test_vim_line_jump_and_find_next(tui):
+    tui.reader.text = "alpha\nbeta\ngamma\nbeta\n"
+    tui.viewing_resource = True
+    tui.last_find = "beta"
+    tui._jump_buffer(tui.reader, 1)
+    tui._vim_goto_line(3)
+    assert tui.reader.buffer.document.cursor_position_row == 2
+    tui._vim_find_next(False)
+    assert tui.reader.buffer.document.cursor_position_row == 3
+    tui._vim_find_next(True)
+    assert tui.reader.buffer.document.cursor_position_row == 1
+    assert "第 2 行" in tui._status_text
 
 
 def test_update_streams_output_and_reports(tui, monkeypatch):
