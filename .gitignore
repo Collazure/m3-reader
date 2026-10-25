@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# 采集数据与本地资料：体积大、可重新生成，不属于工程代码
+/resources/collected/
+/resources/local/
+/resources/ocr/
+/resources/updates/
+
+# 运行期数据：历史、锁、个人意见
+/workspace/history/
+/workspace/notes.json
+/workspace/update.lock
+/workspace/更新意见.md
+
+# 构建 / 发布产物
+/bin/
+/installpacks/windows/
+/installpacks/debian/
+
+# 杂项
+.DS_Store
+Thumbs.db
+*.log

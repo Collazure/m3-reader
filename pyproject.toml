@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "m3-reader"
+version = "2.5.1"
+description = "M3 Reader: PRTS crawler and local resource reader"
+requires-python = ">=3.10"
+dependencies = ["click>=8"]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+tui = ["prompt_toolkit>=3.0"]
+all = ["PySide6>=6.6", "prompt_toolkit>=3.0"]
+
+[project.scripts]
+m3-reader = "prts_tool.cli:main"
+m3-reader-gui = "prts_tool.gui:main"
+
+[tool.setuptools]
+packages = ["prts_tool", "prts_tool.collectors"]

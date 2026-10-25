@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# M3 Reader 命令行启动器。
+#
+# 本文件可软链接到 ~/.local/bin/m3-reader（见 scripts/install_cli.sh）：
+# 启动器按自己的真实路径定位项目根，因此从任何工作目录运行都能找到 resources/。
+#
+#   M3_READER_HOME    覆盖项目根（含 resources/ 的目录）
+#   M3_READER_PYTHON  指定 Python 解释器（默认 python3）
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+fallback="$(dirname -- "$(dirname -- "$self")")"
+project_root="${M3_READER_HOME:-$fallback}"
+
+if ! project_root="$(cd -- "$project_root" 2>/dev/null && pwd)"; then
+    printf 'm3-reader: 项目目录不存在：%s\n' "${M3_READER_HOME:-$fallback}" >&2
+    printf '请重新运行 scripts/install_cli.sh，或把 M3_READER_HOME 设为含 resources/ 的项目根。\n' >&2
+    exit 1
+fi
+
+if [[ ! -f "$project_root/prts_crawler.py" ]]; then
+    printf 'm3-reader: 在 %s 中找不到 prts_crawler.py\n' "$project_root" >&2
+    printf '请重新运行 scripts/install_cli.sh，或把 M3_READER_HOME 设为含 resources/ 的项目根。\n' >&2
+    exit 1
+fi
+
+python="${M3_READER_PYTHON:-python3}"
+if ! command -v "$python" >/dev/null 2>&1; then
+    printf 'm3-reader: 找不到 Python 3；可用 M3_READER_PYTHON 指定解释器。\n' >&2
+    exit 2
+fi
+
+exec "$python" "$project_root/prts_crawler.py" "$@"
