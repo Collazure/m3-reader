@@ -21,10 +21,11 @@ from .paths import BOOK_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OC
 
 try:
     from prompt_toolkit import Application
-    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.completion import CompleteEvent, Completer, Completion
     from prompt_toolkit.filters import Condition
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import Dimension, HSplit, Layout, VSplit
     from prompt_toolkit.styles import Style
     from prompt_toolkit.widgets import Frame, Label, TextArea
@@ -61,14 +62,20 @@ COMMANDS = {
 HELP = """M3 Reader 终端阅读器
 
 焦点与快捷键
-  Tab          在「目录 → 阅读 → 命令」之间切换
-  Esc          在命令栏按 Esc 返回目录
-  Ctrl+F       当前文件查找      Ctrl+G  全库搜索
-  Ctrl+U       更新              Ctrl+H  最近更新
-  Ctrl+N       写意见            Ctrl+C  取消正在运行的更新
-  Ctrl+Q       退出
+  启动后直接处于命令栏；在目录或阅读区敲任意字符也会回到命令栏。
+  Tab              目录 ↔ 阅读切换；命令栏中 Tab 补全
+  Enter            执行命令（目录中为展开或打开文件）
+  Backspace        编辑当前命令
+  Ctrl+U           清空当前命令（不在命令栏时为“更新”）
+  Ctrl+C           清空当前命令；更新中则取消更新
+  ↑ / ↓            命令历史；Ctrl+P / Ctrl+N 同样可用
+  PageUp / PageDown 滚动阅读区
+  Esc              取消补全；命令为空时返回目录
+  Ctrl+F / Ctrl+G / Ctrl+H / Ctrl+N
+                   在目录或阅读区：当前文件查找 / 全库搜索 / 历史 / 写意见
+  Ctrl+Q           退出
 
-命令栏（Tab 补全，↑↓ 翻历史，Enter 执行）
+命令栏（Tab 补全，Enter 执行）
   find 词语                  当前文件查找
   search 词语                全库搜索；随后 go 序号 打开结果
   jump 行号                  跳到当前文本的指定行
@@ -240,13 +247,15 @@ class TerminalLibrary:
     def __init__(self, *, input=None, output=None):
         self.tree = TextArea(read_only=True, scrollbar=True, wrap_lines=False)
         self.reader = TextArea(read_only=True, scrollbar=True, wrap_lines=True)
-        self._status_text = "就绪 · Ctrl+Q 退出 · help 查看命令"
+        self._status_text = "就绪 · 直接输入命令 · Tab 切换焦点 · help 查看"
         self._status_level = "status.info"
         self.command = TextArea(height=1, prompt=" › ", multiline=False,
                                 history=InMemoryHistory(),
                                 completer=CommandCompleter(),
-                                complete_while_typing=True)
+                                complete_while_typing=False)
         self.command.buffer.accept_handler = self._accept
+        self.tree.control.key_bindings = self._pane_keys("tree")
+        self.reader.control.key_bindings = self._pane_keys("reader")
         self.status = Label(text=lambda: [(f"class:{self._status_level}", f" {self._status_text} ")],
                             style="class:status")
         self.heading = Label(text=self._heading_fragments, style="class:heading")
@@ -254,7 +263,8 @@ class TerminalLibrary:
                        Frame(self.reader, title="阅读 / 搜索 / 差异")], padding=1)
         self.app = Application(input=input, output=output,
                                layout=Layout(HSplit([self.heading, body, self.status,
-                                                       Frame(self.command, title="命令 · Tab 补全 · ↑↓ 历史")])),
+                                                     Frame(self.command, title="命令 · Tab 补全 · ↑↓ 历史")]),
+                                             focused_element=self.command),
                                key_bindings=self._keys(), full_screen=True, mouse_support=True,
                                style=Style.from_dict({
                                    "": "bg:#1f2329 #a8cfa7",
@@ -293,6 +303,49 @@ class TerminalLibrary:
         self.reader.text = HELP
 
     # -------------------------------------------------------------- 状态与焦点
+    def _pane_keys(self, kind: str):
+        """Keys owned by the read-only panes.
+
+        prompt_toolkit binds ``n``/``N``/``/``/``?`` to in-buffer search in
+        read-only buffers, and those widget bindings take priority over the
+        application's ``Keys.Any`` handler. Override them here so typing a
+        command works from the tree and the reader, just like a terminal.
+        """
+        keys = KeyBindings()
+        pane = self.reader if kind == "reader" else self.tree
+
+        @keys.add("n")
+        @keys.add("N")
+        def _(event):
+            self.app.layout.focus(self.command)
+            self.command.buffer.insert_text(event.data)
+            self._set_status("焦点：命令 · 输入 help 查看用法", "status.info")
+
+        @keys.add("/")
+        def _(event):
+            self._prompt("find ", "输入词语后回车；Esc 返回")
+
+        @keys.add("?")
+        def _(event):
+            self._execute("help")
+
+        @keys.add("space")
+        def _(event):
+            if kind == "reader":
+                self.reader.buffer.cursor_down(20)
+            else:
+                self._activate_tree_row()
+
+        @keys.add("pageup")
+        def _(event):
+            pane.buffer.cursor_up(10)
+
+        @keys.add("pagedown")
+        def _(event):
+            pane.buffer.cursor_down(10)
+
+        return keys
+
     def _focus_name(self) -> str:
         try:
             window = self.app.layout.current_window
@@ -317,7 +370,7 @@ class TerminalLibrary:
         self._status_level = level
         self.app.invalidate()
 
-    def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = True) -> None:
+    def _show(self, title: str, body: str, *, level: str = "status.info", focus: bool = False) -> None:
         self.viewing_resource = False
         self.reader.text = body
         self.reader.buffer.cursor_position = 0
@@ -340,21 +393,42 @@ class TerminalLibrary:
 
     def _keys(self):
         keys = KeyBindings()
+        command_focus = Condition(lambda: self.app.layout.current_window is self.command.window)
+        tree_focus = Condition(lambda: self.app.layout.current_window is self.tree.window)
+        reader_focus = Condition(lambda: self.app.layout.current_window is self.reader.window)
 
         @keys.add("c-q")
         def _(event):
             event.app.exit()
 
-        @keys.add("tab", filter=Condition(lambda: self.app.layout.current_window is not self.command.window))
+        @keys.add("tab", filter=command_focus)
+        def _(event):
+            self._complete_command()
+
+        @keys.add("tab", filter=~command_focus)
         def _(event):
             focus = event.app.layout.current_window
             target = self.reader if focus == self.tree.window else self.command if focus == self.reader.window else self.tree
             event.app.layout.focus(target)
             self._set_status(f"焦点：{self._focus_name()} · Tab 切换", "status.info")
 
-        @keys.add("escape", filter=Condition(lambda: self.app.layout.current_window is self.command.window))
+        @keys.add("enter", filter=command_focus)
         def _(event):
-            self.command.text = ""
+            self._submit_command()
+
+        @keys.add("enter", filter=tree_focus)
+        def _(event):
+            self._activate_tree_row()
+
+        @keys.add("escape", filter=command_focus)
+        def _(event):
+            if self.command.buffer.complete_state:
+                self.command.buffer.cancel_completion()
+                return
+            if self.command.text:
+                self.command.text = ""
+                self._set_status("命令已清空", "status.info")
+                return
             event.app.layout.focus(self.tree)
             self._set_status("已返回目录 · Tab 切换焦点", "status.info")
 
@@ -362,44 +436,68 @@ class TerminalLibrary:
         def _(event):
             if self.update_active:
                 self._cancel_update()
+            elif command_focus():
+                if self.command.text:
+                    self.command.text = ""
+                    self._set_status("命令已清空 · 按 Ctrl+Q 退出", "status.info")
+                else:
+                    self._set_status("按 Ctrl+Q 退出；输入 help 查看命令", "status.info")
             else:
                 self._set_status("按 Ctrl+Q 退出；更新中可按 Ctrl+C 取消", "status.info")
 
-        @keys.add("enter", filter=Condition(lambda: self.app.layout.current_window is self.tree.window))
+        @keys.add("c-u", filter=command_focus)
         def _(event):
-            row = self.tree.buffer.document.cursor_position_row
-            if row < len(self.rows):
-                parts = self.rows[row]
-                path = self.file_nodes.get(parts)
-                if path:
-                    try:
-                        self._open(path)
-                    except (OSError, UnicodeError) as exc:
-                        self._set_status(f"打开失败：{exc}", "status.error")
-                else:
-                    if parts in self.expanded:
-                        self.expanded.remove(parts)
-                    else:
-                        self.expanded.add(parts)
-                    self._draw_tree()
+            self.command.text = ""
+            self._set_status("命令已清空", "status.info")
 
-        @keys.add("c-f")
+        @keys.add("c-h", filter=command_focus)
         def _(event):
-            self._prompt("find ", "输入词语后回车；Esc 返回")
+            # Some terminals send Ctrl+H for Backspace instead of 0x7f.
+            self.command.buffer.delete_before_cursor()
 
-        @keys.add("c-g")
-        def _(event):
-            self._prompt("search ", "输入词语后回车；随后用 go 序号 打开结果")
-
-        @keys.add("c-u")
+        @keys.add("c-u", filter=~command_focus)
         def _(event):
             self._prompt("update ", "输入模块和模式，如 update avg changed；Ctrl+C 取消运行中的更新")
 
-        @keys.add("c-h")
+        @keys.add("c-p", filter=command_focus)
+        def _(event):
+            self.command.buffer.history_backward()
+
+        @keys.add("c-n", filter=command_focus)
+        def _(event):
+            self.command.buffer.history_forward()
+
+        @keys.add("pageup", filter=command_focus)
+        def _(event):
+            self.app.layout.focus(self.reader)
+            self.reader.buffer.cursor_up(10)
+            self._set_status("阅读区 · PageUp/PageDown 滚动 · 输入字符返回命令", "status.info")
+
+        @keys.add("pagedown", filter=command_focus)
+        def _(event):
+            self.app.layout.focus(self.reader)
+            self.reader.buffer.cursor_down(10)
+            self._set_status("阅读区 · PageUp/PageDown 滚动 · 输入字符返回命令", "status.info")
+
+        @keys.add(Keys.Any, filter=tree_focus | reader_focus)
+        def _(event):
+            self.app.layout.focus(self.command)
+            self.command.buffer.insert_text(event.data)
+            self._set_status("焦点：命令 · 输入 help 查看用法", "status.info")
+
+        @keys.add("c-f", filter=~command_focus)
+        def _(event):
+            self._prompt("find ", "输入词语后回车；Esc 返回")
+
+        @keys.add("c-g", filter=~command_focus)
+        def _(event):
+            self._prompt("search ", "输入词语后回车；随后用 go 序号 打开结果")
+
+        @keys.add("c-h", filter=~command_focus)
         def _(event):
             self._execute("history")
 
-        @keys.add("c-n")
+        @keys.add("c-n", filter=~command_focus)
         def _(event):
             self._prompt("note ", "输入意见后回车；note+ 续写，save 保存")
 
@@ -411,6 +509,24 @@ class TerminalLibrary:
         self.app.layout.focus(self.command)
         if hint:
             self._set_status(hint, "status.info")
+
+    def _activate_tree_row(self):
+        row = self.tree.buffer.document.cursor_position_row
+        if row >= len(self.rows):
+            return
+        parts = self.rows[row]
+        path = self.file_nodes.get(parts)
+        if path:
+            try:
+                self._open(path)
+            except (OSError, UnicodeError) as exc:
+                self._set_status(f"打开失败：{exc}", "status.error")
+        else:
+            if parts in self.expanded:
+                self.expanded.remove(parts)
+            else:
+                self.expanded.add(parts)
+            self._draw_tree()
 
     def _draw_tree(self):
         lines: list[str] = []
@@ -465,6 +581,26 @@ class TerminalLibrary:
         self.app.invalidate()
 
     # -------------------------------------------------------------- 命令分发
+    def _complete_command(self):
+        """Tab completion: apply a unique match immediately (no async lag)."""
+        buffer = self.command.buffer
+        if buffer.complete_state:
+            buffer.complete_next()
+            return
+        completions = list(self.command.completer.get_completions(
+            buffer.document, CompleteEvent(completion_requested=True)))
+        if len(completions) == 1:
+            buffer.apply_completion(completions[0])
+        elif completions:
+            buffer.start_completion(insert_common_part=True)
+
+    def _submit_command(self):
+        """Enter submits the typed line itself, not the highlighted completion."""
+        buffer = self.command.buffer
+        if buffer.complete_state:
+            buffer.cancel_completion()
+        buffer.validate_and_handle()
+
     def _accept(self, buffer):
         command = buffer.text.strip()
         if command:

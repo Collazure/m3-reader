@@ -77,10 +77,46 @@ def test_command_completion():
     assert _completions("update --mode=f") == ["force"]
 
 
+def test_startup_focus_is_command(tui):
+    assert tui._focus_name() == "命令"
+
+
+def test_tab_completes_unique_command_immediately(tui):
+    async def scenario():
+        run = asyncio.create_task(tui.app.run_async())
+        await asyncio.sleep(0.1)
+        tui.command.text = "hel"
+        tui.command.buffer.cursor_position = 3
+        tui._complete_command()
+        await asyncio.sleep(0.1)
+        text = tui.command.text
+        tui.app.exit()
+        await run
+        return text
+
+    assert asyncio.run(scenario()) == "help"
+
+
+def test_panes_override_readonly_search_keys(tui):
+    # prompt_toolkit binds n/N///? to in-buffer search in read-only buffers;
+    # the panes must expose their own bindings so commands can start with them.
+    for pane in (tui.tree, tui.reader):
+        assert pane.control.key_bindings is not None
+        for key in ("n", "N", "/", "?"):
+            assert pane.control.key_bindings.get_bindings_for_keys((key,))
+
+
+def test_submit_executes_and_clears_input(tui):
+    tui.command.text = "help"
+    tui._submit_command()
+    assert "终端阅读器" in tui.reader.text
+    assert tui.command.text == ""
+
+
 def test_feedback_and_guidance(tui):
     tui._execute("help")
     assert "终端阅读器" in tui.reader.text
-    assert tui._focus_name() == "阅读"
+    assert tui._focus_name() == "命令"
 
     tui._execute("nonesuch")
     assert tui._status_level == "status.error"

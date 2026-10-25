@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.5.2 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.5.3 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -34,6 +34,7 @@
 | K25 | GUI 完整更新分两阶段：先刷新所有可采集文本，再下载 terra 图片；纯文本遵循当前模块 | prts_tool/jobs.py、gui.py；本地 PDF/OCR 不被爬虫抓取 |
 | K26 | Windows 便携包解压后 CLI 与 GUI 可启动；Ubuntu 源码包解压后 CLI 可启动 | 2026-10-25 本机空资源包烟测；Ubuntu 安装脚本及桌面会话仍需在 Ubuntu 验证 |
 | K27 | TUI 命令栏支持补全/历史、更新实时进度与 Ctrl+C 取消；GUI 启动默认隐藏意见和变动栏，顶部「变动栏」开关控制历史 | prts_tool/tui.py、gui.py；tests/test_tui.py、tests/test_gui_layout.py |
+| K28 | TUI 启动焦点在命令栏；目录/阅读区控件层接管 `n`/`N`/`/`/`?`，保证任意字符都能开始命令 | prts_tool/tui.py；prompt_toolkit 只读缓冲默认绑定这些键为缓冲内搜索，须在控件层覆盖 |
 
 ## 待实现 / 待验证
 
