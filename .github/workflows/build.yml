@@ -40,7 +40,9 @@ jobs:
           $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'M3 Reader.lnk'))
           $shortcut.TargetPath = $legacyGui
           $shortcut.Save()
-          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          New-Item -Path 'HKCU:\Software\M3 Reader' -Force | Out-Null
+          Set-ItemProperty -Path 'HKCU:\Software\M3 Reader' -Name InstallLocation -Value $installRoot
+          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$installRoot"
           if ($LASTEXITCODE -ne 0) { throw "首次安装失败：$LASTEXITCODE" }
           $externalResources = Join-Path $env:RUNNER_TEMP 'M3 Reader External Resources'
           $externalFile = Join-Path $externalResources 'local\external.txt'
@@ -48,10 +50,13 @@ jobs:
           Set-Content -LiteralPath $externalFile -Value 'external user data'
           New-Item -Path 'HKCU:\Software\M3 Reader' -Force | Out-Null
           Set-ItemProperty -Path 'HKCU:\Software\M3 Reader' -Name ResourcesLocation -Value $externalResources
-          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$installRoot"
           if ($LASTEXITCODE -ne 0) { throw "旧版本升级失败：$LASTEXITCODE" }
           if ((Get-Content -LiteralPath $resource -Raw).Trim() -ne 'keep user data') { throw '用户资料被覆盖' }
           if ((Get-Content -LiteralPath $externalFile -Raw).Trim() -ne 'external user data') { throw '外部 resources 被覆盖' }
+          if ((Get-ItemProperty -Path 'HKCU:\Software\M3 Reader' -Name ResourcesLocation).ResourcesLocation -ne $externalResources) {
+            throw '升级后未保留自定义 resources 路径'
+          }
           & (Join-Path $installRoot 'bin\windows\m3-reader.exe') --version
           if ($LASTEXITCODE -ne 0) { throw '安装后的 CLI 无法启动' }
           $registeredPath = (Get-ItemProperty -Path 'HKCU:\Environment' -Name Path).Path
