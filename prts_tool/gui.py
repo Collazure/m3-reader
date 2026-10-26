@@ -23,10 +23,10 @@ try:
     from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
     from PySide6.QtPdf import QPdfDocument
     from PySide6.QtPdfWidgets import QPdfView
-    from PySide6.QtWidgets import (QApplication, QBoxLayout, QComboBox, QDockWidget, QHBoxLayout,
+    from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
                                    QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-                                   QSizePolicy, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
+                                   QSizePolicy, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
 except ImportError as exc:  # pragma: no cover - tested with the optional Qt runtime
     raise SystemExit("GUI 需要 PySide6。请运行 python -m pip install PySide6 PySide6-Addons") from exc
@@ -52,7 +52,26 @@ QHeaderView::section { background: #29383a; color: #cce08c; padding: 5px; }
 QDockWidget::title { background: #29383a; color: #cce08c; padding: 6px; }
 QScrollBar { background: #1f2329; width: 12px; }
 QScrollBar::handle { background: #4f695b; }
+QCheckBox { background: #202a30; color: #a8cfa7; padding: 4px 8px; spacing: 7px; }
+QCheckBox::indicator { width: 14px; height: 14px; }
+QCheckBox::indicator:checked { background: #8cd0d3; border: 1px solid #a9e8b5; }
+QCheckBox::indicator:unchecked { background: #1f2329; border: 1px solid #688a71; }
 """
+
+# Search file-format filters. Text formats are on by default; binary formats
+# (PDF / images) are filename-only and stay off to avoid needless scanning.
+SEARCH_FORMATS = (
+    ("Markdown · .md", (".md",), True),
+    ("纯文本 · .txt", (".txt",), True),
+    ("CSV · .csv", (".csv",), True),
+    ("TSV · .tsv", (".tsv",), True),
+    ("PDF 文件名 · .pdf", (".pdf",), False),
+    ("JPEG 文件名 · .jpg/.jpeg", (".jpg", ".jpeg"), False),
+    ("PNG 文件名 · .png", (".png",), False),
+    ("WebP 文件名 · .webp", (".webp",), False),
+    ("GIF 文件名 · .gif", (".gif",), False),
+    ("BMP 文件名 · .bmp", (".bmp",), False),
+)
 
 
 class SearchThread(QThread):
@@ -537,6 +556,7 @@ class MainWindow(QMainWindow):
         self.resize(1500, 920)
         self.current_path: Path | None = None
         self.search_worker: SearchThread | None = None
+        self._search_pending = False
         self.process: QProcess | None = None
         self.update_queue: list[list[str]] = []
         self.readers: dict[str, QWidget] = {}
@@ -684,20 +704,29 @@ class MainWindow(QMainWindow):
         self.global_input.setFixedWidth(200)
         self.global_input.returnPressed.connect(self.global_search)
         global_layout.addWidget(self.global_input)
-        self.search_format = QComboBox()
-        self.search_format.addItem("文本格式（默认）", None)
-        self.search_format.addItem("所有格式", TEXT_SUFFIXES | IMAGE_SUFFIXES | PDF_SUFFIXES)
-        self.search_format.addItem("Markdown · .md", {".md"})
-        self.search_format.addItem("纯文本 · .txt", {".txt"})
-        self.search_format.addItem("CSV · .csv", {".csv"})
-        self.search_format.addItem("TSV · .tsv", {".tsv"})
-        self.search_format.addItem("PDF 文件名 · .pdf", {".pdf"})
-        self.search_format.addItem("JPEG 文件名", {".jpg", ".jpeg"})
-        self.search_format.addItem("PNG 文件名 · .png", {".png"})
-        self.search_format.addItem("WebP 文件名 · .webp", {".webp"})
-        self.search_format.addItem("GIF 文件名 · .gif", {".gif"})
-        self.search_format.addItem("BMP 文件名 · .bmp", {".bmp"})
-        self.search_format.setToolTip("默认检索文本；PDF/图片按文件名检索，来源和栏目请用右侧标签")
+        self.search_format = QToolButton()
+        self.search_format.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.search_format.setToolTip("选择搜索的文件格式（可多选）；PDF/图片默认关闭")
+        format_menu = self.format_menu = QMenu(self.search_format)
+        self._formats_dirty = False
+        self.format_checks: dict[str, QCheckBox] = {}
+        self.format_suffixes: dict[str, frozenset[str]] = {}
+        for label, suffixes, checked in SEARCH_FORMATS:
+            check = QCheckBox(label, format_menu)
+            check.setChecked(checked)
+            check.toggled.connect(self._search_format_toggled)
+            widget_action = QWidgetAction(format_menu)
+            widget_action.setDefaultWidget(check)
+            format_menu.addAction(widget_action)
+            self.format_checks[label] = check
+            self.format_suffixes[label] = frozenset(suffixes)
+        format_menu.addSeparator()
+        format_menu.addAction("仅文本格式", lambda checked=False: self.set_search_formats("text"))
+        format_menu.addAction("全选", lambda checked=False: self.set_search_formats("all"))
+        format_menu.addAction("清空", lambda checked=False: self.set_search_formats("none"))
+        format_menu.aboutToHide.connect(self._search_format_menu_closed)
+        self.search_format.setMenu(format_menu)
+        self._update_search_format_label()
         global_layout.addWidget(self.search_format)
         global_button = QPushButton("搜索")
         global_button.clicked.connect(self.global_search)
@@ -787,6 +816,60 @@ class MainWindow(QMainWindow):
         self.search_panel = panel
         self.search_tab_index = self.tabs.addTab(panel, "检索结果")
         self.tabs.removeTab(self.search_tab_index)
+
+    def selected_search_formats(self) -> set[str]:
+        formats: set[str] = set()
+        for label, check in self.format_checks.items():
+            if check.isChecked():
+                formats |= self.format_suffixes[label]
+        return formats
+
+    def set_search_formats(self, mode: str):
+        """Bulk-check formats: text / all / none."""
+        for label, check in self.format_checks.items():
+            suffixes = self.format_suffixes[label]
+            checked = mode == "all" or (mode == "text" and suffixes <= TEXT_SUFFIXES)
+            with QSignalBlocker(check):
+                check.setChecked(checked)
+        self._update_search_format_label()
+        self._search_format_toggled()
+
+    def _update_search_format_label(self):
+        selected = self.selected_search_formats()
+        if not selected:
+            label = "格式 · 无"
+        elif selected <= TEXT_SUFFIXES:
+            label = "格式 · 文本"
+        else:
+            checked_count = sum(1 for check in self.format_checks.values() if check.isChecked())
+            label = f"格式 · {checked_count}"
+        self.search_format.setText(label)
+        names = [name for name, check in self.format_checks.items() if check.isChecked()]
+        self.search_format.setToolTip(
+            "已选文件格式（可多选）：\n" + "\n".join(names)
+            if names else "未选择文件格式；请至少勾选一项")
+
+    def _search_format_toggled(self, _checked=False):
+        # Do not rerun the (potentially expensive) search for every checkbox;
+        # wait until the format menu closes.
+        self._formats_dirty = True
+        self._update_search_format_label()
+
+    def _search_format_menu_closed(self):
+        if not self._formats_dirty:
+            return
+        self._formats_dirty = False
+        worker = getattr(self, "search_worker", None)
+        if self.global_input.text().strip() and not (worker and worker.isRunning()):
+            self.global_search()
+        elif self.global_input.text().strip():
+            self._search_pending = True
+
+    def _search_worker_finished(self):
+        if not self._search_pending:
+            return
+        self._search_pending = False
+        QTimer.singleShot(0, self.global_search)
 
     def set_search_tag(self, tag: str, positive: bool, checked: bool):
         yes, no = self.tag_buttons[tag]
@@ -901,7 +984,7 @@ class MainWindow(QMainWindow):
         large = size >= 20
         self.find_input.setFixedWidth(max(190, round(size * 8)))
         self.global_input.setFixedWidth(max(200, round(size * 8)))
-        self.search_format.setFixedWidth(max(170, min(280, round(size * 9))))
+        self.search_format.setFixedWidth(max(120, min(230, round(size * 7))))
         self.find_input.setPlaceholderText("文件内查找" if large else "文件内搜索 Ctrl+F")
         self.global_input.setPlaceholderText("全局搜索" if large else "全局搜索 Ctrl+Shift+F")
         self.version_label.setText(f"M3 · v{__version__}" if large else f"M3 Reader · v{__version__}")
@@ -913,8 +996,11 @@ class MainWindow(QMainWindow):
         self.header_toolbar.updateGeometry()
         for menu in (self.import_menu, self.reading_menu, self.search_menu,
                      self.tools_menu, self.view_menu, self.help_menu,
-                     self.online_menu, self.local_menu, self.font_menu, self.menu_font_menu):
+                     self.online_menu, self.local_menu, self.font_menu, self.menu_font_menu,
+                     self.format_menu):
             menu.setFont(font)
+        for check in self.format_checks.values():
+            check.setFont(font)
         self.statusBar().showMessage(f"任务栏字号：{size:g} pt")
 
     def set_vim(self, enabled):
@@ -1419,9 +1505,13 @@ class MainWindow(QMainWindow):
         include = {tag for tag, (yes, _) in self.tag_buttons.items() if yes.isChecked()}
         exclude = {tag for tag, (_, no) in self.tag_buttons.items() if no.isChecked()}
         current_dir = relative_id(self.search_context_path.parent) if getattr(self, "search_context_path", None) else None
-        self.search_worker = SearchThread(term, scope, include, exclude, current_dir,
-                                          self.search_format.currentData())
+        formats = self.selected_search_formats()
+        if not formats:
+            self.statusBar().showMessage("请至少勾选一种文件格式（格式菜单在搜索框右侧）")
+            return
+        self.search_worker = SearchThread(term, scope, include, exclude, current_dir, formats)
         self.search_worker.ready.connect(self.show_hits)
+        self.search_worker.finished.connect(self._search_worker_finished)
         self.search_worker.start()
 
     def show_hits(self, hits):

@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QImage, QTextCursor, QTextDocument
 
 from prts_tool.gui import CommandLine, MainWindow, MarkdownReader, TextReader
@@ -136,17 +136,60 @@ def test_search_hit_opens_source_without_eager_markdown_or_pdf(app):
         window.close()
 
 
+def test_format_menu_checkboxes_support_multiselect(app):
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    menu = window.format_menu
+    menu.popup(QPoint(20, 20))
+    app.processEvents()
+    try:
+        assert menu.isVisible()
+        assert window.format_checks["Markdown · .md"].isChecked()
+        assert not window.format_checks["PDF 文件名 · .pdf"].isChecked()
+
+        pdf = window.format_checks["PDF 文件名 · .pdf"]
+        QTest.mouseClick(pdf, Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, pdf.rect().center())
+        app.processEvents()
+
+        # Selecting one format must not close the menu; more can be checked.
+        assert menu.isVisible()
+        assert pdf.isChecked()
+        assert window.selected_search_formats() == {".md", ".txt", ".csv", ".tsv", ".pdf"}
+    finally:
+        menu.hide()
+        window.close()
+
+
 def test_search_tab_tags_and_independent_font_commands(app):
     window = MainWindow()
     try:
-        assert [window.search_format.itemData(i) for i in range(7)] == [
-            None, {".md", ".txt", ".csv", ".tsv", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"},
-            {".md"}, {".txt"}, {".csv"}, {".tsv"}, {".pdf"}]
-        window.search_format.setCurrentIndex(2)
+        # Text formats are checked by default; PDF/images stay off.
+        assert window.selected_search_formats() == {".md", ".txt", ".csv", ".tsv"}
+        for label in ("Markdown · .md", "纯文本 · .txt", "CSV · .csv", "TSV · .tsv"):
+            assert window.format_checks[label].isChecked()
+        for label in ("PDF 文件名 · .pdf", "PNG 文件名 · .png",
+                      "JPEG 文件名 · .jpg/.jpeg"):
+            assert not window.format_checks[label].isChecked()
+
+        # Multi-select: uncheck everything, then check Markdown only.
+        window.set_search_formats("none")
+        window.format_checks["Markdown · .md"].setChecked(True)
         window.global_input.setText("故事")
         window.global_search()
         assert window.tabs.currentWidget() is window.search_panel
         assert window.search_worker.formats == {".md"}
+        window.search_worker.wait(30000)
+
+        # Adding PDF and PNG keeps Markdown selected too.
+        window.format_checks["PDF 文件名 · .pdf"].setChecked(True)
+        window.format_checks["PNG 文件名 · .png"].setChecked(True)
+        assert window.selected_search_formats() == {".md", ".pdf", ".png"}
+        if window.search_worker and window.search_worker.isRunning():
+            window.search_worker.wait(30000)
+        window.global_search()
+        assert window.search_worker.formats == {".md", ".pdf", ".png"}
         window.search_worker.wait(30000)
         yes, no = window.tag_buttons["特殊"]
         yes.setChecked(True)
