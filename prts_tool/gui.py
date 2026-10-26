@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
 import codecs
 import html
+import tempfile
+import time
 from pathlib import Path
+from string import Template
 
 from . import __version__
+from .appearance import THEME_NAMES, load_theme, save_theme
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments, update_command_sequence
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, parse_search_request, read_opinions,
@@ -17,14 +23,15 @@ from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_ind
 from .paths import APP_ICON_FILE, BOOK_DIR, BOOK_IMAGE_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
 from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
+from .resource_settings import import_resources, inspect_resources, move_resources, save_resources
 
 try:
-    from PySide6.QtCore import QEvent, QPointF, QProcess, QSignalBlocker, Qt, QThread, QTimer, QUrl, Signal
-    from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
+    from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QProcess, QPropertyAnimation, QSignalBlocker, Qt, QThread, QTimer, QUrl, Signal
+    from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
     from PySide6.QtPdf import QPdfDocument
     from PySide6.QtPdfWidgets import QPdfView
     from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
-                                   QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
+                                   QFileDialog, QGraphicsOpacityEffect, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
                                    QSizePolicy, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
@@ -32,31 +39,54 @@ except ImportError as exc:  # pragma: no cover - tested with the optional Qt run
     raise SystemExit("GUI 需要 PySide6。请运行 python -m pip install PySide6 PySide6-Addons") from exc
 
 
-STYLE = """
-QWidget { background: #1f2329; color: #a8cfa7; font-family: 'Maple Mono NF CN','Noto Sans Mono CJK SC',monospace; }
-QMainWindow, QDockWidget { background: #191f24; }
-QToolBar, QMenuBar, QStatusBar { background: #202a30; border-bottom: 1px solid #4f5f5f; spacing: 7px; padding: 5px; }
-QMenuBar::item { padding: 4px 7px; margin: 0; }
-QMenuBar::item:selected { background: #385246; color: #f0f9f9; }
-QMenu { background: #202a30; border: 1px solid #688a71; padding: 5px; }
-QMenu::item { padding: 5px 22px; }
-QMenu::item:selected { background: #385246; color: #f0f9f9; }
-QTreeWidget, QListWidget, QPlainTextEdit, QTextBrowser, QLineEdit, QComboBox { background: #1f2329; color: #a8cfa7; border: 1px solid #41534b; selection-background-color: #40536a; selection-color: #f0f9f9; }
-QTreeWidget::item, QListWidget::item { padding: 3px; }
-QPushButton { background: #29383a; color: #cce08c; border: 1px solid #688a71; padding: 5px 10px; }
-QPushButton:hover { background: #3a5547; }
-QPushButton:disabled { color: #829684; border-color: #41534b; }
-QTabBar::tab { background: #273137; color: #a8cfa7; border: 1px solid #41534b; padding: 7px 14px; }
-QTabBar::tab:selected { background: #385246; color: #f0f9f9; }
-QHeaderView::section { background: #29383a; color: #cce08c; padding: 5px; }
-QDockWidget::title { background: #29383a; color: #cce08c; padding: 6px; }
-QScrollBar { background: #1f2329; width: 12px; }
-QScrollBar::handle { background: #4f695b; }
-QCheckBox { background: #202a30; color: #a8cfa7; padding: 4px 8px; spacing: 7px; }
-QCheckBox::indicator { width: 14px; height: 14px; }
-QCheckBox::indicator:checked { background: #8cd0d3; border: 1px solid #a9e8b5; }
-QCheckBox::indicator:unchecked { background: #1f2329; border: 1px solid #688a71; }
-"""
+THEME_COLORS = {
+    "classic": dict(base="#242a30", main="#1e252b", panel="#29343a", text="#b7d8b6",
+                    accent="#d4e99b", accent2="#92d4d7", border="#536b60", hover="#405d4d",
+                    selected="#405b4c", button="#304244", muted="#96ac9d", selection="#49617b"),
+    "soft": dict(base="#303b40", main="#29343a", panel="#37474c", text="#d0e5d0",
+                 accent="#e3edae", accent2="#a9e0df", border="#719080", hover="#50725f",
+                 selected="#527260", button="#40575a", muted="#b2c5b5", selection="#5b7890"),
+    "ocean": dict(base="#202f3d", main="#1b2936", panel="#2a3c4b", text="#c6dce9",
+                  accent="#b7d5ef", accent2="#94d7d9", border="#59778b", hover="#385b73",
+                  selected="#365a73", button="#2d495e", muted="#9eb6c5", selection="#42677d"),
+    "warm": dict(base="#302c29", main="#292522", panel="#3a332e", text="#e1d5c2",
+                 accent="#ead4a1", accent2="#d8c2a2", border="#82715f", hover="#625142",
+                 selected="#655241", button="#4c4037", muted="#b9a994", selection="#6d6055"),
+}
+
+_STYLE_TEMPLATE = Template("""
+QWidget { background: $base; color: $text; font-family: 'Maple Mono NF CN','Noto Sans Mono CJK SC',monospace; }
+QMainWindow, QDockWidget { background: $main; }
+QToolBar, QMenuBar, QStatusBar { background: $panel; border-bottom: 1px solid $border; spacing: 7px; padding: 5px; }
+QMenuBar::item { padding: 4px 9px; margin: 1px; border-radius: 6px; }
+QMenuBar::item:selected { background: $hover; color: $accent; }
+QMenu { background: $panel; border: 1px solid $border; border-radius: 9px; padding: 6px; }
+QMenu::item { padding: 6px 22px; border-radius: 5px; }
+QMenu::item:selected { background: $hover; color: $accent; }
+QTreeWidget, QListWidget, QPlainTextEdit, QTextBrowser, QLineEdit, QComboBox { background: $base; color: $text; border: 1px solid $border; border-radius: 8px; selection-background-color: $selection; selection-color: #f8fbf8; }
+QTreeWidget::item, QListWidget::item { padding: 3px; border-radius: 4px; }
+QPushButton, QToolButton { background: $button; color: $accent; border: 1px solid $border; border-radius: 8px; padding: 5px 10px; }
+QPushButton:hover, QToolButton:hover { background: $hover; }
+QPushButton:disabled, QToolButton:disabled { color: $muted; border-color: $border; }
+QTabWidget::pane { border: 1px solid $border; border-radius: 8px; background: $main; }
+QTabBar::tab { background: $panel; color: $text; border: 1px solid $border; border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 7px 14px; margin-right: 3px; }
+QTabBar::tab:selected { background: $selected; color: #f8fbf8; }
+QHeaderView::section { background: $button; color: $accent; border: 0; padding: 5px; }
+QDockWidget::title { background: $button; color: $accent; padding: 6px; }
+QScrollBar { background: $base; width: 12px; }
+QScrollBar::handle { background: $border; border-radius: 6px; }
+QCheckBox { background: $panel; color: $text; padding: 4px 8px; spacing: 7px; }
+QCheckBox::indicator { width: 14px; height: 14px; border-radius: 4px; }
+QCheckBox::indicator:checked { background: $accent2; border: 1px solid $accent; }
+QCheckBox::indicator:unchecked { background: $base; border: 1px solid $border; }
+""")
+
+
+def style_for_theme(name: str) -> str:
+    return _STYLE_TEMPLATE.substitute(THEME_COLORS.get(name, THEME_COLORS["classic"]))
+
+
+STYLE = style_for_theme("classic")
 
 # Search file-format filters. Text formats are on by default; binary formats
 # (PDF / images) are filename-only and stay off to avoid needless scanning.
@@ -91,6 +121,23 @@ class SearchThread(QThread):
         self.ready.emit(search_text(self.query, limit=1000, scope=self.scope,
                                     include_tags=self.include_tags, exclude_tags=self.exclude_tags,
                                     current_directory=self.current_directory, formats=self.formats))
+
+
+class ResourceThread(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, operation: str, source: Path, destination: Path):
+        super().__init__()
+        self.operation, self.source, self.destination = operation, source, destination
+
+    def run(self):
+        try:
+            result = (move_resources(self.source, self.destination) if self.operation == "move"
+                      else import_resources(self.source, self.destination))
+            self.completed.emit(result)
+        except (OSError, ValueError) as exc:
+            self.failed.emit(str(exc))
 
 
 class CommandLine(QLineEdit):
@@ -735,17 +782,29 @@ def make_pdf_reader(path: Path) -> PdfReader:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.theme_id = load_theme()
+        QApplication.instance().setStyleSheet(style_for_theme(self.theme_id))
         migrate_story_layout(DEFAULT_TEXT_DIR / "avg")
         self.setWindowTitle("M3 Reader // 资料终端")
         self.setWindowIcon(QIcon(str(APP_ICON_FILE)))
         self.resize(1500, 920)
         self.current_path: Path | None = None
         self.search_worker: SearchThread | None = None
+        self.resource_worker: ResourceThread | None = None
         self._search_pending = False
         self.process: QProcess | None = None
         self.update_queue: list[list[str]] = []
         self.readers: dict[str, QWidget] = {}
         self._active_reader: QWidget | None = None
+        self._tab_animation: QPropertyAnimation | None = None
+        self._tab_effect_target: QWidget | None = None
+        self._restart_process: subprocess.Popen | None = None
+        self._restart_marker: Path | None = None
+        self._restart_previous_root: Path | None = None
+        self._restart_deadline = 0.0
+        self._restart_timer = QTimer(self)
+        self._restart_timer.setInterval(120)
+        self._restart_timer.timeout.connect(self._check_restart)
         self._navigation_history: list[tuple[Path, int, int | None]] = []
         self._going_back = False
         self._position_timer = QTimer(self)
@@ -797,6 +856,7 @@ class MainWindow(QMainWindow):
         self.search_menu = self.menuBar().addMenu("检索")
         self.tools_menu = self.menuBar().addMenu("工具")
         self.view_menu = self.menuBar().addMenu("视图")
+        self.appearance_menu = self.menuBar().addMenu("外观")
         self.reading_menu.addAction("继续阅读", self.resume_reading)
         self.reading_menu.addAction("返回上一个文件", self.go_back)
         self.reading_menu.addAction("上一文件", lambda: self.adjacent_file(-1))
@@ -805,6 +865,12 @@ class MainWindow(QMainWindow):
         local_menu = self.local_menu = QMenu("本地资料", self.import_menu)
         self.import_menu.addMenu(online_menu)
         self.import_menu.addMenu(local_menu)
+        resources_menu = self.resources_menu = QMenu("resources 目录", self.import_menu)
+        self.import_menu.addMenu(resources_menu)
+        resources_menu.addAction("查看当前位置", self.show_resources_location)
+        resources_menu.addAction("切换目录…", self.switch_resources)
+        resources_menu.addAction("移动目录…", self.move_resources_directory)
+        resources_menu.addAction("导入已有目录…", self.import_resources_directory)
         controls = self.online_controls = QWidget()
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(8, 4, 8, 4)
@@ -838,14 +904,28 @@ class MainWindow(QMainWindow):
         self.markdown_action.setShortcut("Ctrl+M")
         self.markdown_action.toggled.connect(self.set_markdown_format)
         self.view_menu.addAction(self.markdown_action)
-        font_menu = self.font_menu = QMenu("阅读字号", self.view_menu)
-        self.view_menu.addMenu(font_menu)
+        font_root = self.font_root_menu = QMenu("字号", self.appearance_menu)
+        self.appearance_menu.addMenu(font_root)
+        font_menu = self.font_menu = QMenu("阅读字号", font_root)
+        font_root.addMenu(font_menu)
         for size in (12, 14, 16, 18, 20, 24):
             font_menu.addAction(f"{size} pt", lambda checked=False, value=size: self.set_font_size(value))
-        menu_font = self.menu_font_menu = QMenu("任务栏字号", self.view_menu)
-        self.view_menu.addMenu(menu_font)
+        menu_font = self.menu_font_menu = QMenu("任务栏字号", font_root)
+        font_root.addMenu(menu_font)
         for size in (10, 12, 13, 14, 16, 18, 20):
             menu_font.addAction(f"{size} pt", lambda checked=False, value=size: self.set_menu_font_size(value))
+        theme_menu = self.theme_menu = QMenu("主题", self.appearance_menu)
+        self.appearance_menu.addMenu(theme_menu)
+        self.theme_actions: dict[str, QAction] = {}
+        theme_group = self.theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        for theme_id, title in THEME_NAMES.items():
+            action = theme_menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(theme_id == self.theme_id)
+            action.triggered.connect(lambda checked=False, name=theme_id: self.set_theme(name))
+            theme_group.addAction(action)
+            self.theme_actions[theme_id] = action
         self.vim_action = QAction("只读 Vim 操作", self)
         self.vim_action.setCheckable(True)
         self.vim_action.setChecked(True)
@@ -922,7 +1002,7 @@ class MainWindow(QMainWindow):
         global_layout.addWidget(self.version_label)
         right_layout.addWidget(global_row, 0, Qt.AlignmentFlag.AlignRight)
         self.header_controls = right
-        # Keep the six menus on their own row so larger menu fonts cannot hide View/Help.
+        # Keep the menus on their own row so larger fonts do not hide the last entries.
         self.header_toolbar = QToolBar("搜索", self)
         self.header_toolbar.setMovable(False)
         self.header_toolbar.setFloatable(False)
@@ -1070,7 +1150,8 @@ class MainWindow(QMainWindow):
     def paint_search_tag(self, tag: str):
         yes, no = self.tag_buttons[tag]
         label = self.tag_labels[tag]
-        label_color = "#8cd0d3" if tag in {"下载", "本地", "当前目录"} else "#cce08c"
+        colors = THEME_COLORS[self.theme_id]
+        label_color = colors["accent2"] if tag in {"下载", "本地", "当前目录"} else colors["accent"]
         if yes.isChecked():
             label_color = "#a9e8b5"
         elif no.isChecked():
@@ -1080,10 +1161,10 @@ class MainWindow(QMainWindow):
             (yes, yes.isChecked(), "#315b46", "#c9f5cf", "#77c58a"),
             (no, no.isChecked(), "#664042", "#ffe1d8", "#d98f8c")):
             button.setStyleSheet(
-                f"background-color: {background if active else '#29383a'}; "
-                f"color: {foreground if active else '#81998d'}; "
-                f"border: 1px solid {border if active else '#41534b'}; "
-                "padding: 5px 8px; font-weight: bold;"
+                f"background-color: {background if active else colors['button']}; "
+                f"color: {foreground if active else colors['muted']}; "
+                f"border: 1px solid {border if active else colors['border']}; "
+                "border-radius: 7px; padding: 5px 8px; font-weight: bold;"
             )
 
     def make_history_dock(self):
@@ -1154,6 +1235,22 @@ class MainWindow(QMainWindow):
                 reader._margin()
         self.statusBar().showMessage(f"阅读字号：{size:g} pt")
 
+    def set_theme(self, name: str):
+        if name not in THEME_NAMES:
+            raise ValueError(f"未知主题：{name}")
+        self.theme_id = name
+        QApplication.instance().setStyleSheet(style_for_theme(name))
+        self.theme_actions[name].setChecked(True)
+        for tag in self.tag_buttons:
+            self.paint_search_tag(tag)
+        if self.search_hits:
+            self.show_hits(self.search_hits)
+        try:
+            save_theme(name)
+        except OSError as exc:
+            QMessageBox.warning(self, "无法保存主题", str(exc))
+        self.statusBar().showMessage(f"外观主题：{THEME_NAMES[name]}")
+
     def set_menu_font_size(self, size: float):
         if not 8 <= size <= 32:
             raise ValueError("任务栏字号范围为 8–32 pt")
@@ -1181,8 +1278,9 @@ class MainWindow(QMainWindow):
         self.header_controls.updateGeometry()
         self.header_toolbar.updateGeometry()
         for menu in (self.import_menu, self.reading_menu, self.search_menu,
-                     self.tools_menu, self.view_menu, self.help_menu,
-                     self.online_menu, self.local_menu, self.font_menu, self.menu_font_menu,
+                     self.tools_menu, self.view_menu, self.appearance_menu, self.help_menu,
+                     self.online_menu, self.local_menu, self.resources_menu, self.font_root_menu,
+                     self.font_menu, self.menu_font_menu, self.theme_menu,
                      self.format_menu):
             menu.setFont(font)
         for check in self.format_checks.values():
@@ -1672,6 +1770,8 @@ class MainWindow(QMainWindow):
     def close_tab(self, index):
         reader = self.tabs.widget(index)
         if reader:
+            if reader is self._tab_effect_target:
+                self._finish_tab_transition()
             if reader is self.search_panel:
                 self.tabs.removeTab(index)
                 return
@@ -1683,7 +1783,8 @@ class MainWindow(QMainWindow):
 
     def _tab_changed(self, index):
         reader = self.tabs.widget(index)
-        if self._active_reader is not reader:
+        changed = self._active_reader is not reader
+        if changed:
             self._position_timer.stop()
             self._save_reader_position(self._active_reader)
             if isinstance(self._active_reader, (ImageReader, PdfReader)):
@@ -1692,6 +1793,44 @@ class MainWindow(QMainWindow):
         if isinstance(reader, (ImageReader, PdfReader)):
             reader.set_active(True)
         self.current_path = reader.path if hasattr(reader, "path") else None
+        if changed:
+            self._animate_tab_change(reader)
+
+    def _finish_tab_transition(self):
+        animation = self._tab_animation
+        target = self._tab_effect_target
+        self._tab_animation = None
+        self._tab_effect_target = None
+        if animation is not None:
+            animation.stop()
+            animation.deleteLater()
+        if target is not None:
+            try:
+                target.setGraphicsEffect(None)
+            except RuntimeError:
+                pass
+
+    def _animate_tab_change(self, reader):
+        self._finish_tab_transition()
+        if (reader is None or not self.isVisible() or self.tabs.count() < 2
+                or isinstance(reader, (ImageReader, PdfReader))
+                or os.environ.get("M3_READER_REDUCE_MOTION") == "1"
+                or reader.graphicsEffect() is not None):
+            return
+        if isinstance(reader, TextReader) and reader.document().characterCount() > 100_000:
+            return
+        effect = QGraphicsOpacityEffect(reader)
+        reader.setGraphicsEffect(effect)
+        effect.setOpacity(0.82)
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(135)
+        animation.setStartValue(0.82)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._tab_animation = animation
+        self._tab_effect_target = reader
+        animation.finished.connect(self._finish_tab_transition)
+        animation.start()
 
     def _queue_position_save(self, *_):
         self._position_timer.start()
@@ -1748,7 +1887,8 @@ class MainWindow(QMainWindow):
 
     def show_hits(self, hits):
         self.search_hits = hits
-        rows = ["<html><body style='color:#a8cfa7;font-family:monospace'>"]
+        colors = THEME_COLORS[self.theme_id]
+        rows = [f"<html><body style='color:{colors['text']};font-family:monospace'>"]
         for index, hit in enumerate(hits, 1):
             suffix = Path(hit.resource_id).suffix.lower()
             binary = suffix in PDF_SUFFIXES | IMAGE_SUFFIXES
@@ -1759,12 +1899,12 @@ class MainWindow(QMainWindow):
             title = f"{index:04d}  {source}{'' if binary else f':{hit.line}'}  ·  {location}"
             body = ("[文件名] " if hit.kind == "title" and not binary else "") + excerpt
             rows.append(f"<p style='margin:9px 8px 1px'><a href='m3hit:{index - 1}' "
-                        f"style='color:#8cd0d3;text-decoration:none'>{title}</a></p>")
+                        f"style='color:{colors['accent2']};text-decoration:none'>{title}</a></p>")
             rows.append(f"<p style='margin:0 8px 9px 34px'><a href='m3hit:{index - 1}' "
-                        f"style='color:#cce08c;text-decoration:none'>{body}</a></p>")
+                        f"style='color:{colors['accent']};text-decoration:none'>{body}</a></p>")
             if hit.page and hit.resource_id.endswith("大地巡旅_OCR.txt"):
                 rows.append(f"<p style='margin:0 8px 9px 34px'><a href='m3pdf:{index - 1}' "
-                            f"style='color:#8cd0d3'>查看 PDF 第 {hit.page} 页</a></p>")
+                            f"style='color:{colors['accent2']}'>查看 PDF 第 {hit.page} 页</a></p>")
         rows.append("</body></html>")
         self.search_results.setHtml("".join(rows))
         files = len({hit.resource_id for hit in hits})
@@ -1872,6 +2012,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "保存失败", str(exc))
 
     def closeEvent(self, event):
+        self._finish_tab_transition()
+        if self.resource_worker and self.resource_worker.isRunning():
+            QMessageBox.information(self, "正在处理 resources", "请等待目录操作完成。")
+            event.ignore()
+            return
         if self.opinions_edit.document().isModified():
             answer = QMessageBox.question(self, "保存更新意见", "更新意见有未保存的更改，退出前保存？",
                                           QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard |
@@ -1887,6 +2032,167 @@ class MainWindow(QMainWindow):
         self._position_timer.stop()
         self._save_current_position()
         super().closeEvent(event)
+
+    def show_resources_location(self):
+        QMessageBox.information(self, "resources 目录", str(RESOURCES_DIR))
+
+    def _resources_ready(self, moving=False) -> bool:
+        if self.resource_worker and self.resource_worker.isRunning():
+            QMessageBox.information(self, "正在处理 resources", "请等待当前目录操作完成。")
+            return False
+        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(self, "正在更新资料", "请等待或停止当前采集任务后再操作。")
+            return False
+        if self.opinions_edit.document().isModified():
+            QMessageBox.information(self, "更新意见未保存", "请先保存更新意见。")
+            return False
+        if moving and self.readers:
+            QMessageBox.information(self, "文件仍在使用", "请先关闭所有阅读标签，再移动 resources 目录。")
+            return False
+        return True
+
+    def _choose_resources(self, title: str) -> Path | None:
+        name = QFileDialog.getExistingDirectory(self, title, str(RESOURCES_DIR.parent))
+        return Path(name) if name else None
+
+    def _restart_with_resources(self, previous_root: Path | None = None):
+        if self._restart_timer.isActive():
+            return
+        descriptor, marker_name = tempfile.mkstemp(prefix="m3-reader-ready-", suffix=".flag")
+        os.close(descriptor)
+        marker = Path(marker_name)
+        marker.unlink()
+        environment = dict(os.environ)
+        environment.pop("M3_READER_RESOURCES", None)
+        environment["M3_READER_READY_FILE"] = str(marker)
+        if getattr(sys, "frozen", False):
+            program, args, launch_dir = sys.executable, [], PROJECT_DIR
+        else:
+            program, args = sys.executable, ["-m", "prts_tool.gui_bootstrap"]
+            launch_dir = Path(__file__).resolve().parent.parent
+        try:
+            process = subprocess.Popen([program, *args], cwd=str(launch_dir), env=environment,
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, start_new_session=os.name != "nt")
+        except OSError as exc:
+            marker.unlink(missing_ok=True)
+            if previous_root is not None:
+                try:
+                    save_resources(previous_root)
+                except (OSError, ValueError):
+                    pass
+            QMessageBox.warning(self, "切换失败", f"新窗口未能启动，当前窗口已保留：\n{exc}")
+            return
+        self._restart_process = process
+        self._restart_marker = marker
+        self._restart_previous_root = previous_root
+        self._restart_deadline = time.monotonic() + 30
+        self.resources_menu.setEnabled(False)
+        self.statusBar().showMessage("正在打开新窗口，当前窗口会在新窗口就绪后关闭…")
+        self._restart_timer.start()
+
+    def _check_restart(self):
+        process, marker = self._restart_process, self._restart_marker
+        if process is None or marker is None:
+            self._restart_timer.stop()
+            return
+        failed = process.poll() is not None or time.monotonic() >= self._restart_deadline
+        try:
+            ready = marker.is_file() and marker.read_text(encoding="utf-8") == "ready"
+        except OSError:
+            ready = False
+        if not failed and not ready:
+            return
+        self._restart_timer.stop()
+        marker.unlink(missing_ok=True)
+        self._restart_process = None
+        self._restart_marker = None
+        previous_root = self._restart_previous_root
+        self._restart_previous_root = None
+        self.resources_menu.setEnabled(True)
+        if failed:
+            if process.poll() is None:
+                process.terminate()
+            if previous_root is not None:
+                try:
+                    save_resources(previous_root)
+                except (OSError, ValueError):
+                    pass
+            QMessageBox.warning(self, "切换失败", "新窗口未能就绪，当前窗口已保留。请检查目录权限后重试。")
+            return
+        self.close()
+
+    def switch_resources(self):
+        if not self._resources_ready():
+            return
+        target = self._choose_resources("切换 resources 目录")
+        if target is None or target == RESOURCES_DIR.resolve():
+            return
+        try:
+            count = inspect_resources(target)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "目录无效", str(exc))
+            return
+        if QMessageBox.question(self, "切换 resources", f"切换到：\n{target}\n\n已检测到 {count} 个文件。当前目录不会移动。") != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            save_resources(target)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "切换失败", str(exc))
+            return
+        self._restart_with_resources(previous_root=RESOURCES_DIR)
+
+    def move_resources_directory(self):
+        if not self._resources_ready(moving=True):
+            return
+        target = self._choose_resources("移动 resources 到空目录")
+        if target is None:
+            return
+        if QMessageBox.question(self, "移动 resources", f"将 {RESOURCES_DIR} 的所有文件校验后移动到：\n{target}\n\n完成后自动重启。") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_resource_task("move", RESOURCES_DIR, target)
+
+    def import_resources_directory(self):
+        if not self._resources_ready():
+            return
+        source = self._choose_resources("导入已有 resources 目录")
+        if source is None:
+            return
+        try:
+            count = inspect_resources(source)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "目录无效", str(exc))
+            return
+        if QMessageBox.question(self, "导入 resources", f"将 {source} 的 {count} 个文件导入当前目录。遇到同名不同内容的文件时停止。") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_resource_task("import", source, RESOURCES_DIR)
+
+    def _run_resource_task(self, operation: str, source: Path, destination: Path):
+        self.resources_menu.setEnabled(False)
+        self.statusBar().showMessage("正在处理 resources 目录…")
+        worker = self.resource_worker = ResourceThread(operation, source, destination)
+        worker.completed.connect(lambda result: self._resource_task_completed(operation, result))
+        worker.failed.connect(self._resource_task_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _resource_task_completed(self, operation: str, result):
+        self.resource_worker.wait()
+        self.resource_worker = None
+        self.resources_menu.setEnabled(True)
+        if operation == "move":
+            QMessageBox.information(self, "移动完成", f"已校验并移动 {result} 个文件。")
+            self._restart_with_resources()
+        else:
+            added, same = result
+            self.reload_tree()
+            self.statusBar().showMessage(f"导入完成：新增 {added} 个文件，已有 {same} 个相同文件。")
+
+    def _resource_task_failed(self, message: str):
+        self.resource_worker.wait()
+        self.resource_worker = None
+        self.resources_menu.setEnabled(True)
+        QMessageBox.warning(self, "resources 操作失败", message)
 
     def import_file(self):
         name, _ = QFileDialog.getOpenFileName(self, "导入本地资料", "", "资料 (*.txt *.md *.pdf *.jpg *.jpeg *.png *.webp *.gif *.bmp)")
@@ -2002,13 +2308,20 @@ class MainWindow(QMainWindow):
         self.reload_history()
 
 
-def main() -> int:
-    app = QApplication(sys.argv)
-    app.setStyleSheet(STYLE)
+def main(app: QApplication | None = None) -> int:
+    app = app or QApplication.instance() or QApplication(sys.argv)
     app.setFont(QFont("Maple Mono NF CN", 11))
     app.setWindowIcon(QIcon(str(APP_ICON_FILE)))
     window = MainWindow()
     window.show()
+    marker = os.environ.pop("M3_READER_READY_FILE", None)
+    if marker:
+        def announce_ready():
+            try:
+                Path(marker).write_text("ready", encoding="utf-8")
+            except OSError:
+                pass
+        QTimer.singleShot(0, announce_ready)
     return app.exec()
 
 

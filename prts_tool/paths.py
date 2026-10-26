@@ -6,11 +6,13 @@ import os
 import sys
 from pathlib import Path
 
+from .resource_settings import resource_root
+
 PROJECT_DIR = (Path(os.environ["M3_READER_HOME"]).expanduser().resolve()
                if os.environ.get("M3_READER_HOME") else
                Path(sys.executable).resolve().parent.parent.parent if getattr(sys, "frozen", False)
                else Path(__file__).resolve().parent.parent)
-RESOURCES_DIR = PROJECT_DIR / "resources"
+RESOURCES_DIR = resource_root(PROJECT_DIR)
 DEFAULT_TEXT_DIR = RESOURCES_DIR / "collected" / "prts_text"
 DEFAULT_TERRA_DIR = RESOURCES_DIR / "collected" / "terra"
 TERRA_OCR_DIR = RESOURCES_DIR / "ocr" / "terra_text"

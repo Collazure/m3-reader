@@ -7,7 +7,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from prts_tool.cli import build_cli
-from prts_tool.history import HistoryCapture, diff_rows, diff_text, import_local, load_run
+from prts_tool.history import HistoryCapture, _snapshot, diff_rows, diff_text, import_local, load_run
 from prts_tool.jobs import UpdateCapture, update_command_sequence
 from prts_tool.library import append_opinion, note_location, read_opinions, save_note, search_text
 from prts_tool.paths import BOOK_TEXT_DIR, DEFAULT_TEXT_DIR, PROJECT_DIR
@@ -55,6 +55,71 @@ class LibraryHistoryTest(unittest.TestCase):
                 self.assertEqual(len(run["changes"]), 1)
                 self.assertIn("-旧行", diff_text(run["changes"][0]))
                 self.assertIn("+新行", diff_text(load_run(run["id"])["changes"][0]))
+
+    def test_disk_snapshot_keeps_change_semantics_and_cleans_up(self):
+        with tempfile.TemporaryDirectory(dir=PROJECT_DIR) as temp:
+            root = Path(temp)
+            unchanged = root / "unchanged.txt"
+            changed = root / "changed.txt"
+            removed = root / "removed.txt"
+            image = root / "cover.jpg"
+            for path, content in ((unchanged, "不变\n"), (changed, "旧正文\n"), (removed, "删除\n")):
+                path.write_text(content, encoding="utf-8")
+            image.write_bytes(b"old-image")
+            with patch("prts_tool.history.relative_id", side_effect=lambda p: p.name), \
+                 patch("prts_tool.history.HISTORY_DIR", root / "history"):
+                before = _snapshot((root,))
+                snapshot_dir = Path(before._temporary.name)
+                capture = HistoryCapture("test", (root,), before, "2026-10-25T00:00:00+08:00")
+                changed.write_text("新正文\n", encoding="utf-8")
+                removed.unlink()
+                (root / "added.txt").write_text("新增\n", encoding="utf-8")
+                image.write_bytes(b"new-image")
+                run = capture.finish(status="failed", error="test failure")
+                changes = {item["resource_id"]: item for item in run["changes"]}
+                self.assertEqual(set(changes), {"changed.txt", "removed.txt", "added.txt", "cover.jpg"})
+                self.assertEqual((changes["changed.txt"]["old"], changes["changed.txt"]["new"]),
+                                 ("旧正文\n", "新正文\n"))
+                self.assertEqual(changes["removed.txt"]["action"], "deleted")
+                self.assertEqual(changes["added.txt"]["action"], "added")
+                self.assertEqual(changes["cover.jpg"]["kind"], "image")
+                self.assertEqual(run["status"], "failed")
+                self.assertFalse(snapshot_dir.exists())
+
+    def test_disk_snapshot_ignores_timestamp_only_changes_and_cleans_on_save_error(self):
+        with tempfile.TemporaryDirectory(dir=PROJECT_DIR) as temp:
+            root = Path(temp)
+            resource = root / "sample.txt"
+            resource.write_text("抓取时间：2026-10-25 00:00:00\n正文\n", encoding="utf-8")
+            with patch("prts_tool.history.relative_id", side_effect=lambda p: p.name), \
+                 patch("prts_tool.history.HISTORY_DIR", root / "history"):
+                before = _snapshot((root,))
+                snapshot_dir = Path(before._temporary.name)
+                capture = HistoryCapture("test", (root,), before, "2026-10-25T00:00:00+08:00")
+                resource.write_text("抓取时间：2026-10-26 00:00:00\n正文\n", encoding="utf-8")
+                self.assertEqual(capture.finish()["changes"], [])
+                self.assertFalse(snapshot_dir.exists())
+
+                before = _snapshot((root,))
+                snapshot_dir = Path(before._temporary.name)
+                capture = HistoryCapture("test", (root,), before, "2026-10-25T00:00:00+08:00")
+                with patch("prts_tool.history._save_run", side_effect=OSError("disk full")):
+                    with self.assertRaises(OSError):
+                        capture.finish()
+                self.assertFalse(snapshot_dir.exists())
+
+    def test_update_initialization_failure_cleans_snapshot_and_unlocks(self):
+        with tempfile.TemporaryDirectory(dir=PROJECT_DIR) as temp:
+            root = Path(temp)
+            with patch("prts_tool.jobs.WORKSPACE_DIR", root), \
+                 patch("prts_tool.history.WORKSPACE_DIR", root), \
+                 patch("prts_tool.jobs.LatestCapture", side_effect=OSError("setup failed")):
+                with self.assertRaises(OSError):
+                    with UpdateCapture(DEFAULT_TEXT_DIR, []):
+                        pass
+                self.assertFalse(list(root.glob(".history-snapshot-*")))
+                with UpdateCapture(DEFAULT_TEXT_DIR, [], dry_run=True):
+                    pass
 
     def test_local_replace_preserves_previous_version(self):
         with tempfile.TemporaryDirectory(dir=PROJECT_DIR) as temp:

@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.9.4 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前源码版本为 2.10.1；Linux 二进制和安装包已重构，Windows 仍需构建 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md；bin/ubuntu/、installpacks/debian/ |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -28,7 +28,7 @@
 | K19 | TUI 已在 Windows PTY 启动；共享层的搜索、历史和本地导入替换经过测试 | 2026-10-25；入口和操作说明见 docs/APP_README.md |
 | K20 | 非采集资料统一位于 resources/local/，《大地巡旅》页面图与 OCR 文本分存 images/ 与 text/ | prts_tool/paths.py、resources/README.md；爬虫更新只作用于 collected/ |
 | K21 | 用户意见是可直接编辑的 workspace/更新意见.md，无需打开任何资源 | prts_tool/library.py、gui.py、tui.py；旧 notes.json 仅保留供查阅 |
-| K22 | Windows 已构建并启动 GUI 和 CLI；Ubuntu 有独立构建入口，需在 Ubuntu 上构建验证 | bin/windows/、scripts/build_windows.ps1、build_ubuntu.sh、prts_tool/paths.py；冻结程序从 bin/平台/ 定位资源 |
+| K22 | Ubuntu 26.04 已构建并启动 2.10.1 GUI 和 CLI；Windows 现有二进制仍为旧版 | bin/ubuntu/、scripts/build_ubuntu.sh、prts_tool/paths.py；冻结程序从 bin/平台/ 定位资源 |
 | K23 | 项目名与 CLI 已改为 m3-reader，项目位于 /run/media/collazure/Static/texts/m3-reader | pyproject.toml、prts_tool/paths.py；`M3_READER_HOME` 可覆盖资源根 |
 | K24 | installpacks 仅打包白名单内程序文件和空资源目录 | scripts/package_installpacks.py；已检查 Windows ZIP 与 Ubuntu tar.gz 无资源或工作区文件，并校验 SHA-256 |
 | K25 | GUI 完整更新分两阶段：先刷新所有可采集文本，再下载 terra 图片；纯文本遵循当前模块 | prts_tool/jobs.py、gui.py；本地 PDF/OCR 不被爬虫抓取 |
@@ -53,6 +53,10 @@
 | K44 | GUI 全局检索的文件格式筛选为可多选勾选菜单（复选框）；文本默认开启，PDF/图片默认关闭且仅按文件名匹配；右侧标签用绿/暖红区分包含/排除 | prts_tool/gui.py、prts_tool/library.py；2026-10-26 |
 | K45 | Qt 全局样式中的固定字号导致任务栏字号不一致；菜单与搜索区分行，放大时搜索控件再分两行 | prts_tool/gui.py；2026-10-26 |
 | K46 | 轻量化：GUI 树按需展开、图片标签释放非活动 pixmap、大地巡旅 PDF 用页面图；TUI back 按路径重开；构建排除未用 Qt 模块 | prts_tool/gui.py、tui.py、scripts/build_*；实测启动 125→114 MB、5 图 203→131 MB、巡旅 PDF 525→127 MB、搜索后 241→159 MB |
+| K47 | 更新历史仅把运行前快照写入临时磁盘数据库，结束时逐文件比较并清理；pytest 只收集项目测试 | prts_tool/history.py、jobs.py、pyproject.toml、tests/test_library_history.py；本机 5145 文件无变化对比，峰值约 84→35 MiB、耗时 0.91→1.12 秒；共用代码覆盖 Windows/Linux，跨平台 CI 已加入测试；2026-10-26 |
+| K48 | 两端构建脚本先写暂存目录，构建成功后替换程序；模拟构建失败验证原二进制未变 | scripts/build_windows.ps1、scripts/build_ubuntu.sh；Windows 2.10.1 已在本机重建，Linux 双端 CI 待验证；2026-10-26 |
+| K49 | Windows 安装向导和 Linux 便携脚本支持升级并保留用户资源；`.deb` 只拥有程序文件，用户数据在个人目录 | scripts/windows_installer.iss、install_ubuntu_portable.sh、deb_launcher.sh、package_installpacks.py、tests/test_installers.py；Windows 2.10.1 向导已编译，Linux 便携版重复安装及 `.deb` 解包待新 CI 复验；2026-10-26 |
+| K50 | Windows 向导添加当前用户 PATH 并在卸载时移除自己的条目；Linux 源码/便携安装幂等设置 Bash 用户命令路径 | scripts/windows_installer.iss、scripts/ensure_user_path.sh；2026-10-26 |
 
 ## 待实现 / 待验证
 

@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import hashlib
+import sqlite3
+import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,8 +38,8 @@ def _stable(text: str) -> str:
     return _TIME.sub(r"\1", text)
 
 
-def _snapshot(roots: tuple[Path, ...]) -> dict[str, tuple[str, str | None]]:
-    found: dict[str, tuple[str, str | None]] = {}
+def _entries(roots: tuple[Path, ...]):
+    """Read one resource at a time in the same order and format as a snapshot."""
     for root in roots:
         if not root.is_dir():
             continue
@@ -48,18 +50,54 @@ def _snapshot(roots: tuple[Path, ...]) -> dict[str, tuple[str, str | None]]:
                 continue
             key = relative_id(path)
             if path.suffix.lower() in TEXT_SUFFIXES:
-                body = path.read_text(encoding="utf-8", errors="replace")
-                found[key] = ("text", body)
+                yield key, "text", path.read_text(encoding="utf-8", errors="replace")
             else:
-                found[key] = ("image", _digest(path))
-    return found
+                yield key, "image", _digest(path)
+
+
+class _Snapshot:
+    """Keep update snapshots on disk so unchanged texts do not stay in RAM."""
+
+    def __init__(self):
+        WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+        self._temporary = tempfile.TemporaryDirectory(prefix=".history-snapshot-", dir=WORKSPACE_DIR)
+        self._db = sqlite3.connect(Path(self._temporary.name) / "snapshot.db")
+        self._db.execute("CREATE TABLE files (id TEXT PRIMARY KEY, kind TEXT, content TEXT)")
+
+    def add(self, key: str, kind: str, content: str) -> None:
+        self._db.execute("INSERT INTO files VALUES (?, ?, ?)", (key, kind, content))
+
+    def keys(self) -> set[str]:
+        return {key for (key,) in self._db.execute("SELECT id FROM files")}
+
+    def get(self, key: str) -> tuple[str, str] | None:
+        row = self._db.execute("SELECT kind, content FROM files WHERE id = ?", (key,)).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def close(self) -> None:
+        try:
+            self._db.close()
+        finally:
+            self._temporary.cleanup()
+
+
+def _snapshot(roots: tuple[Path, ...]) -> _Snapshot:
+    found = _Snapshot()
+    try:
+        for key, kind, content in _entries(roots):
+            found.add(key, kind, content)
+        found._db.commit()
+        return found
+    except BaseException:
+        found.close()
+        raise
 
 
 @dataclass
 class HistoryCapture:
     command: str
     roots: tuple[Path, ...]
-    before: dict[str, tuple[str, str | None]]
+    before: _Snapshot | dict[str, tuple[str, str | None]]
     started_at: str
 
     @classmethod
@@ -71,34 +109,51 @@ class HistoryCapture:
                    datetime.now().astimezone().isoformat(timespec="seconds"))
 
     def finish(self, *, status: str = "success", error: str = "") -> dict:
-        after = _snapshot(self.roots)
-        changes = []
-        for key in sorted(self.before.keys() | after.keys()):
-            old = self.before.get(key)
-            new = after.get(key)
-            if old == new:
-                continue
-            kind = (new or old)[0]
-            if kind == "text" and old and new and _stable(old[1] or "") == _stable(new[1] or ""):
-                continue
-            changes.append({
-                "resource_id": key,
-                "kind": kind,
-                "action": "added" if old is None else "deleted" if new is None else "modified",
-                "old": old[1] if old else None,
-                "new": new[1] if new else None,
-            })
-        run = {
-            "id": datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8],
-            "started_at": self.started_at,
-            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "command": self.command,
-            "status": status,
-            "error": error,
-            "changes": changes,
-        }
-        _save_run(run)
-        return run
+        try:
+            changes_by_id = {}
+            seen = set()
+            for key, new_kind, new_content in _entries(self.roots):
+                seen.add(key)
+                old = self.before.get(key)
+                new = (new_kind, new_content)
+                if old == new:
+                    continue
+                if new_kind == "text" and old and _stable(old[1] or "") == _stable(new_content):
+                    continue
+                changes_by_id[key] = {
+                    "resource_id": key,
+                    "kind": new_kind,
+                    "action": "added" if old is None else "modified",
+                    "old": old[1] if old else None,
+                    "new": new_content,
+                }
+            for key in self.before.keys() - seen:
+                old = self.before.get(key)
+                changes_by_id[key] = {
+                    "resource_id": key,
+                    "kind": old[0],
+                    "action": "deleted",
+                    "old": old[1],
+                    "new": None,
+                }
+            changes = [changes_by_id[key] for key in sorted(changes_by_id)]
+            run = {
+                "id": datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8],
+                "started_at": self.started_at,
+                "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "command": self.command,
+                "status": status,
+                "error": error,
+                "changes": changes,
+            }
+            _save_run(run)
+            return run
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if isinstance(self.before, _Snapshot):
+            self.before.close()
 
 
 def _digest(path: Path) -> str:

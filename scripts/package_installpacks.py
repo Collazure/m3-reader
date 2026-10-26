@@ -1,4 +1,4 @@
-"""Produce minimal portable Windows and Ubuntu source packages.
+"""Produce platform-specific installers without user resources.
 
 Only explicitly listed program files and empty resource directories enter an archive.
 Existing collected data, OCR output, local documents, opinions and history are excluded.
@@ -9,9 +9,13 @@ from __future__ import annotations
 import hashlib
 import io
 import argparse
+import os
+import platform
 import re
+import shutil
+import subprocess
 import tarfile
-import zipfile
+import tempfile
 from pathlib import Path
 
 
@@ -34,9 +38,13 @@ SOURCE_FILES = (
     "docs/APP_README.md",
     "scripts/entry_cli.py",
     "scripts/entry_gui.py",
-    "scripts/build_windows.ps1",
     "scripts/build_ubuntu.sh",
     "scripts/install_ubuntu.sh",
+    "scripts/install_ubuntu_portable.sh",
+    "scripts/install_cli.sh",
+    "scripts/ensure_user_path.sh",
+    "scripts/m3-reader",
+    "scripts/m3-reader-gui",
     *(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "prts_tool").rglob("*.py"))),
 )
 WINDOWS_FILES = ("bin/windows/m3-reader.exe", "bin/windows/m3-reader-gui.exe")
@@ -64,14 +72,79 @@ def build_windows(target: Path) -> None:
     for name in WINDOWS_FILES:
         if not (ROOT / name).is_file():
             raise FileNotFoundError(f"请先构建 Windows 程序：{ROOT / name}")
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        archive.writestr(f"{PREFIX}/README-install.md", readme("windows"))
-        for name in EMPTY_DIRS:
-            archive.writestr(f"{PREFIX}/{name}", b"")
-        for name in WINDOWS_FILES:
-            archive.write(ROOT / name, f"{PREFIX}/{name}")
-        for name in ("install_windows.cmd", "scripts/install_windows.ps1"):
-            archive.write(ROOT / name, f"{PREFIX}/{name}")
+    _check_binary_version(ROOT / WINDOWS_FILES[0])
+    compiler = os.environ.get("M3_READER_ISCC") or shutil.which("ISCC.exe") or shutil.which("ISCC")
+    if not compiler:
+        for base in (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Programs",
+                     Path.home() / "AppData/Local/Programs",
+                     Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)"))):
+            for folder in ("Inno Setup 7", "Inno Setup 6"):
+                candidate = base / folder / "ISCC.exe"
+                if candidate.is_file():
+                    compiler = str(candidate)
+                    break
+            if compiler:
+                break
+    if not compiler:
+        raise RuntimeError("构建 Windows 安装包需要 Inno Setup 的 ISCC.exe")
+    env = dict(os.environ, M3_READER_VERSION=VERSION)
+    subprocess.run([str(compiler), str(ROOT / "scripts" / "windows_installer.iss")],
+                   cwd=ROOT, env=env, check=True)
+    if not target.is_file():
+        raise FileNotFoundError(f"Inno Setup 未生成安装包：{target}")
+
+
+def _check_binary_version(path: Path) -> None:
+    result = subprocess.run([str(path), "--version"], text=True, capture_output=True, check=True)
+    if result.stdout.strip() != f"m3-reader, version {VERSION}":
+        raise RuntimeError(f"可执行程序版本与源码 {VERSION} 不一致：{path}：{result.stdout.strip()}")
+
+
+def build_deb(target: Path) -> None:
+    for name in UBUNTU_FILES[:2]:
+        if not (ROOT / name).is_file():
+            raise FileNotFoundError(f"请先构建 Linux 程序：{ROOT / name}")
+    _check_binary_version(ROOT / UBUNTU_FILES[0])
+    if not shutil.which("dpkg-deb"):
+        raise RuntimeError("构建 .deb 需要 dpkg-deb")
+    (ROOT / "build").mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="m3-deb-", dir=ROOT / "build") as temp:
+        stage = Path(temp)
+        control = stage / "DEBIAN"
+        control.mkdir()
+        glibc_version = platform.libc_ver()[1]
+        libc_dependency = f"libc6 (>= {glibc_version})" if re.fullmatch(r"\d+\.\d+", glibc_version) else "libc6"
+        (control / "control").write_text(
+            f"Package: m3-reader\nVersion: {VERSION}\nSection: utils\nPriority: optional\n"
+            "Architecture: amd64\nMaintainer: Collazure\n"
+            f"Depends: {libc_dependency}, libegl1, libgl1, libxkbcommon0, libxcb-cursor0\n"
+            "Description: M3 Reader local PRTS resource reader\n"
+            " Python-based offline reader and updater for PRTS resources.\n", encoding="utf-8")
+        program_dir = stage / "opt/m3-reader/bin/ubuntu"
+        program_dir.mkdir(parents=True)
+        for name in UBUNTU_FILES[:2]:
+            dest = program_dir / Path(name).name
+            shutil.copy2(ROOT / name, dest)
+            dest.chmod(0o755)
+        bin_dir = stage / "usr/bin"
+        bin_dir.mkdir(parents=True)
+        for name in ("m3-reader", "m3-reader-gui"):
+            dest = bin_dir / name
+            shutil.copy2(ROOT / "scripts/deb_launcher.sh", dest)
+            dest.chmod(0o755)
+        desktop = stage / "usr/share/applications/m3-reader.desktop"
+        desktop.parent.mkdir(parents=True)
+        desktop.write_text("[Desktop Entry]\nType=Application\nName=M3 Reader\n"
+                           "Comment=阅读和更新 PRTS 资料\nExec=/usr/bin/m3-reader-gui\n"
+                           "Icon=m3-reader\nTerminal=false\nCategories=Office;Utility;\n", encoding="utf-8")
+        desktop.chmod(0o644)
+        icon = stage / "usr/share/pixmaps/m3-reader.png"
+        icon.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / "assets/icon.png", icon)
+        icon.chmod(0o644)
+        for directory in (stage, *(path for path in stage.rglob("*") if path.is_dir())):
+            directory.chmod(0o755)
+        subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(stage), str(target)], check=True)
 
 
 def build_ubuntu(target: Path) -> None:
@@ -98,6 +171,7 @@ def build_ubuntu_portable(target: Path) -> None:
     for name in UBUNTU_FILES[:2]:
         if not (ROOT / name).is_file():
             raise FileNotFoundError(f"请先在 Ubuntu 构建程序：{ROOT / name}")
+    _check_binary_version(ROOT / UBUNTU_FILES[0])
     with tarfile.open(target, "w:gz") as archive:
         payload = ("# M3 Reader Ubuntu 便携版\n\n解压后运行 bash scripts/install_ubuntu_portable.sh "
                    "即可创建应用菜单入口；也可直接运行 bin/ubuntu/m3-reader-gui。\n"
@@ -111,7 +185,8 @@ def build_ubuntu_portable(target: Path) -> None:
             info.type = tarfile.DIRTYPE
             info.mode = 0o755
             archive.addfile(info)
-        for name in UBUNTU_FILES[:2] + ("assets/icon.png", "scripts/install_ubuntu_portable.sh"):
+        for name in UBUNTU_FILES[:2] + ("assets/icon.png", "scripts/install_ubuntu_portable.sh",
+                                       "scripts/ensure_user_path.sh"):
             path = ROOT / name
             info = archive.gettarinfo(str(path), arcname=f"{PREFIX}/{name}")
             info.mode = 0o755 if name in UBUNTU_FILES or name.endswith(".sh") else 0o644
@@ -119,14 +194,37 @@ def build_ubuntu_portable(target: Path) -> None:
                 archive.addfile(info, source)
 
 
+def _package_family(path: Path) -> str | None:
+    name = path.name
+    if path.parent.name == "windows" and name.startswith("m3-reader-") and path.suffix in {".zip", ".exe"}:
+        return "windows"
+    for family, suffix in (("ubuntu-source", "-ubuntu-source.tar.gz"),
+                           ("ubuntu-portable", "-ubuntu-x64-portable.tar.gz")):
+        if name.startswith("m3-reader-") and name.endswith(suffix):
+            return family
+    if name.startswith("m3-reader_") and name.endswith("_amd64.deb"):
+        return "ubuntu-deb"
+    return None
+
+
+def _checksum(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build data-free M3 Reader install packages")
-    parser.add_argument("--platform", choices=("windows", "ubuntu-source", "ubuntu-portable", "ubuntu", "all"), default="all")
+    parser.add_argument("--platform", choices=("windows", "ubuntu-source", "ubuntu-portable", "ubuntu-deb", "ubuntu", "all"),
+                        default="windows" if os.name == "nt" else "ubuntu")
     platform = parser.parse_args().platform
     output = ROOT / "installpacks"
-    windows = output / "windows" / f"m3-reader-{VERSION}-windows-x64-portable.zip"
+    windows = output / "windows" / f"m3-reader-{VERSION}-windows-x64-setup.exe"
     ubuntu = output / "debian" / f"m3-reader-{VERSION}-ubuntu-source.tar.gz"
     portable = output / "debian" / f"m3-reader-{VERSION}-ubuntu-x64-portable.tar.gz"
+    deb = output / "debian" / f"m3-reader_{VERSION}_amd64.deb"
     targets = []
     if platform in ("windows", "all"):
         windows.parent.mkdir(parents=True, exist_ok=True)
@@ -140,8 +238,19 @@ def main() -> int:
         portable.parent.mkdir(parents=True, exist_ok=True)
         build_ubuntu_portable(portable)
         targets.append(portable)
-    checksums = "\n".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(output).as_posix()}"
-                          for path in targets) + "\n"
+    if platform in ("ubuntu-deb", "ubuntu") or (platform == "all" and all((ROOT / name).is_file() for name in UBUNTU_FILES[:2])):
+        deb.parent.mkdir(parents=True, exist_ok=True)
+        build_deb(deb)
+        targets.append(deb)
+    for target in targets:
+        folder = target.parent
+        for older in folder.iterdir():
+            if (older.is_file() and older != target and older not in targets
+                    and _package_family(older) == _package_family(target)):
+                older.unlink()
+    current_packages = [path for path in (windows, ubuntu, portable, deb) if path.is_file()]
+    checksums = "\n".join(f"{_checksum(path)}  {path.relative_to(output).as_posix()}"
+                          for path in current_packages) + "\n"
     (output / "SHA256SUMS.txt").write_bytes(checksums.encode("utf-8"))
     for path in targets:
         print(path)

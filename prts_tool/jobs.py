@@ -63,7 +63,11 @@ class UpdateCapture:
                 self.history = HistoryCapture.start(" ".join(sys.argv[1:]), self.out_dir)
                 self.latest = LatestCapture(self.out_dir, self.collectors)
         except BaseException:
-            self._unlock()
+            try:
+                if self.history:
+                    self.history.close()
+            finally:
+                self._unlock()
             raise
         return self
 

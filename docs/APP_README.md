@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-程序版本：2.9.4。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
+源码版本：2.10.1。首次启动 GUI 时可选择已有或新的 `resources` 目录；不选择时源码和便携版默认使用程序目录内的 `resources/`，`.deb` 版默认使用当前用户的 `~/.local/share/m3-reader/resources/`。`.deb` 可用 `M3_READER_HOME` 指定用户数据根。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
@@ -13,9 +13,12 @@ bash scripts/install_cli.sh
 
 它会在 `~/.local/bin` 建立 `m3-reader` / `m3-reader-gui` 软链接（不复制代码），
 之后可在任意终端目录运行 `m3-reader update`、`m3-reader gui`、`m3-reader tui`。
+Linux 源码/便携安装会将 `~/.local/bin` 写入 Bash 启动配置；新开终端即可使用。
+`.deb` 版由 `/usr/bin/m3-reader` 提供入口。Windows 安装向导会把所选程序目录下的
+`bin\windows` 加入当前用户 PATH；安装后新开 PowerShell 或 CMD 即可直接运行相同命令。
 项目移动或外置盘重新挂载后，重新运行该脚本即可。默认使用系统 `python3`
 （需要 `click`，Ubuntu 可 `sudo apt install python3-click`）；
-`M3_READER_PYTHON` 可指定解释器，`M3_READER_HOME` 可指定项目根。
+`M3_READER_PYTHON` 可指定解释器，`M3_READER_HOME` 可指定包含 `resources/` 和 `workspace/` 的数据根目录；启动脚本始终按自身位置定位源码。
 
 需要隔离依赖时，可再建立虚拟环境并安装可选依赖：
 
@@ -50,9 +53,11 @@ sudo apt install python3-click python3-prompt-toolkit \
 | `python3-venv`、`python3-pip` | 可选，隔离环境 |
 | `pyinstaller` | 可选，重新打包 `bin/` 与 `installpacks/` |
 
-给其他设备使用的最小包见项目根目录 `installpacks/README.md`。Windows 包解压后双击
-`install_windows.cmd` 即可安装并创建桌面、开始菜单快捷方式；也可直接运行便携版 GUI。
-Ubuntu 源码包解压后运行一次 `bash scripts/install_ubuntu.sh`，随后可在应用菜单启动 GUI。
+给其他设备使用的安装包见项目根目录 `installpacks/README.md`。Windows 运行
+`m3-reader-*-windows-x64-setup.exe`，向导可分别选择安装目录和 `resources` 目录；升级时默认选中旧目录，
+保留 `resources/` 和 `workspace/`。Ubuntu 可用 `sudo apt install ./m3-reader_*_amd64.deb`
+安装或升级；也可解压便携包并运行 `bash scripts/install_ubuntu_portable.sh`，再次运行会升级程序。
+源码包运行 `bash scripts/install_ubuntu.sh`。
 这些包不带现有采集文本、OCR、用户文档和意见。
 
 GUI 会优先使用 `Maple Mono NF CN`；
@@ -76,9 +81,11 @@ PDF 和图片按文件名匹配；OCR 正文仍在文本资源中检索。菜单
 对应页。文本默认自动换行，可在「视图」切换，并用 `Ctrl+滚轮` 缩放字体。
 文本阅读器左侧显示绝对行号，当前行号高亮。图片使用 `Ctrl+滚轮` 缩放，PDF 顶部输入页码跳转。
 启动时右侧的「本地更新意见」和「变动栏」默认隐藏。顶部菜单左侧依次是「导入」
-（在线采集、本地资料）、「阅读」、「检索」、「工具」（Vim、命令栏、变动栏）、
-「视图」（自动换行、Markdown、阅读字号、任务栏字号）和「帮助」（更新意见）；
+（在线采集、本地资料、resources 目录）、「阅读」、「检索」、「工具」（Vim、命令栏、变动栏）、
+「视图」（自动换行、Markdown）、「外观」（字号 → 阅读字号/任务栏字号；主题 → 经典/柔亮/深海蓝/暖棕）和「帮助」（更新意见）；
 搜索与程序版本在菜单下方靠右的工具栏。大字号时搜索控件自动分行，菜单始终保留完整空间。
+GUI 的按钮、输入框、页签和菜单采用圆角；切换普通阅读页时有短时淡入，图片、PDF 与超长文本跳过效果。
+主题选择保存在用户配置中。切换 resources 后，新窗口显示就绪才关闭当前窗口；启动失败保留当前窗口。
 「工具 → 变动栏」打开逐行更新历史。单击目录时会打开该目录合适的最高层索引。
 GUI 文本阅读支持只读 Vim：h/j/k/l、0/$、w/b、gg/G、数字前缀、Ctrl+D/U/B、
 / 搜索、n/N/`,` 和 :行号。按 Ctrl+L 可显示或隐藏底部命令栏；隐藏后 Vim 阅读仍可使用。
@@ -104,13 +111,15 @@ CLI 可用 `m3-reader update --images` 执行文本和图片两阶段更新。
 保存，无需先打开资源。TUI 可用 `note 内容` 直接追加；不带参数的 `note` 会显示
 `note:` 提示，输入后回车保存，直接回车退出；多行内容可用 `note+` 续写后 `save`。
 也可用任意文本编辑器修改该文件。旧版 `notes.json` 保留供查阅。
-“导入本地资料”复制文件到 `resources/local/`；“替换当前本地资料”会备份旧文件并记录历史。
+“导入本地资料”复制文件到所选 `resources/local/`；“替换当前本地资料”会备份旧文件并记录历史。
+“导入 → resources 目录”可查看位置、切换目录、校验后移动整个目录，或把已有目录导入当前目录。导入遇到同名不同内容的文件会停止且不覆盖；移动完成后程序会重启。目录选择保存在当前用户的设置中，爬虫与 GUI 使用同一位置。也可用 `M3_READER_RESOURCES` 临时覆盖。
 采集文本、terra 图文和 OCR 资料分别由各自更新方式维护。
 资源树对内部采集模块显示中文名称。剧情数据仍保存在独立的采集模块中；旧版主线章节
 与特殊活动目录会自动迁移为 `主线/第01章…`、`特殊/四月辑录/…`、
 `特殊/危机合约/…`、`特殊/荷谟伊智境/…`，清单与索引随之更新。
 
-TUI 左侧目录限宽，右侧阅读区占余下宽度，阅读区左侧显示绝对行号。启动后焦点直接在
+TUI 顶部直接显示资源目录和「阅读区」两个面板，不再额外占一行显示重复横幅。
+左侧目录限宽，右侧阅读区占余下宽度，阅读区左侧显示绝对行号。启动后焦点直接在
 命令栏；目录区输入任意字符会回到命令栏，阅读区是只读 vim 模式，用 `:` 或 `Alt+3`
 回到命令栏。`Alt+1` / `Alt+2` / `Alt+3` 切换目录 / 阅读 / 命令，`Alt+←` / `Alt+→`
 循环焦点。
@@ -175,9 +184,10 @@ Windows 双击 `bin/windows/m3-reader-gui.exe`，Ubuntu 双击或从应用菜单
 与 `workspace/`，并让 GUI 的更新功能找到同目录 CLI。
 
 Windows 上已验证 GUI 初始化、文本、图片及 454 页 PDF 打开与页码定位，并验证 TUI 启动。
-Windows 与 Ubuntu 使用同一套 GUI/TUI 源码；Ubuntu 构建由仓库工作流执行，
-安装旧版的设备需安装 2.9.3 才能看到新的多选格式菜单。Ubuntu 实机的桌面会话、字体与系统查看器
-仍待验证。没有图形桌面时可继续使用 CLI/TUI。
+Windows 与 Ubuntu 使用同一套 GUI/TUI 源码，但安装包分别只包含本平台程序。
+2.10.1 的 Linux CLI/GUI、便携包与 `.deb` 在 Ubuntu 26.04 构建，并完成离屏 GUI 启动、
+便携版重复安装保留资料及 `.deb` 解包检查。Windows 2.10.1 向导已在 Windows 编译；
+其他 Linux 发行版和桌面会话仍需实际验证。没有图形桌面时可继续使用 CLI/TUI。
 
 
 

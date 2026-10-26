@@ -15,6 +15,9 @@ for name in m3-reader m3-reader-gui; do
     printf '已链接 %s -> %s\n' "$bin_dir/$name" "$project_root/scripts/$name"
 done
 
+source "$project_root/scripts/ensure_user_path.sh"
+ensure_m3_user_path "$bin_dir"
+
 case ":$PATH:" in
     *":$bin_dir:"*) ;;
     *) printf '\n注意：%s 不在 PATH 中，请把它加入 shell 配置。\n' "$bin_dir" ;;

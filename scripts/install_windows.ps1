@@ -34,4 +34,6 @@ if (-not $SkipShortcuts) {
         $shortcut.Save()
     }
 }
+New-Item -Path 'HKCU:\Software\M3 Reader' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\M3 Reader' -Name InstallLocation -Value $installRoot
 Write-Host "安装完成：$installRoot。"

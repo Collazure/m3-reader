@@ -86,6 +86,13 @@ def test_startup_focus_is_command(tui):
     assert tui._focus_name() == "命令"
 
 
+def test_compact_header_and_reader_title(tui):
+    assert tui.reader_frame.title == "阅读区"
+    assert tui.directory_frame.title == "资源目录"
+    assert len(tui.app.layout.container.children) == 3
+    assert not hasattr(tui, "heading")
+
+
 def test_tab_completes_unique_command_immediately(tui, monkeypatch):
     chosen = []
     monkeypatch.setattr(tui.command.buffer, "apply_completion", chosen.append)

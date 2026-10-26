@@ -54,21 +54,42 @@ $excludes = @(
     '--exclude-module','PIL',
     '--exclude-module','numpy'
 )
-$backups = @()
-foreach ($name in @('m3-reader.exe', 'm3-reader-gui.exe')) {
-    $target = Join-Path $dest $name
-    if (Test-Path -LiteralPath $target) {
-        $backup = "$name.previous-$PID"
-        Rename-Item -LiteralPath $target -NewName $backup
-        $backups += Join-Path $dest $backup
+New-Item -ItemType Directory -Force -Path $dest, $work | Out-Null
+$staging = Join-Path $work ("staging-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $staging | Out-Null
+$names = @('m3-reader.exe', 'm3-reader-gui.exe')
+$backups = @{}
+$installed = @()
+try {
+    & $python -m PyInstaller --noconfirm --clean --onefile --optimize 2 --console --name m3-reader --distpath $staging --workpath $work --specpath $work --paths $projectRoot --collect-submodules prts_tool.collectors --exclude-module PySide6 @excludes (Join-Path $PSScriptRoot 'entry_cli.py')
+    if ($LASTEXITCODE -ne 0) { throw 'CLI 构建失败' }
+    & $python -m PyInstaller --noconfirm --clean --onefile --optimize 2 --windowed --name m3-reader-gui --icon (Join-Path $projectRoot 'assets\icon.png') --add-data "$(Join-Path $projectRoot 'assets\icon.png');assets" --distpath $staging --workpath $work --specpath $work --paths $projectRoot --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets @excludes (Join-Path $PSScriptRoot 'entry_gui.py')
+    if ($LASTEXITCODE -ne 0) { throw 'GUI 构建失败' }
+    foreach ($name in $names) {
+        $target = Join-Path $dest $name
+        if (Test-Path -LiteralPath $target) {
+            $backup = Join-Path $dest ("$name.previous-" + [guid]::NewGuid().ToString('N'))
+            Move-Item -LiteralPath $target -Destination $backup
+            $backups[$name] = $backup
+        }
     }
-}
-& $python -m PyInstaller --noconfirm --clean --onefile --optimize 2 --console --name m3-reader --distpath $dest --workpath $work --specpath $work --paths $projectRoot --collect-submodules prts_tool.collectors --exclude-module PySide6 @excludes (Join-Path $PSScriptRoot 'entry_cli.py')
-if ($LASTEXITCODE -ne 0) { throw 'CLI 构建失败' }
-& $python -m PyInstaller --noconfirm --clean --onefile --optimize 2 --windowed --name m3-reader-gui --icon (Join-Path $projectRoot 'assets\icon.png') --add-data "$(Join-Path $projectRoot 'assets\icon.png');assets" --distpath $dest --workpath $work --specpath $work --paths $projectRoot --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets @excludes (Join-Path $PSScriptRoot 'entry_gui.py')
-if ($LASTEXITCODE -ne 0) { throw 'GUI 构建失败' }
-foreach ($backup in $backups) {
-    Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+    foreach ($name in $names) {
+        Move-Item -LiteralPath (Join-Path $staging $name) -Destination (Join-Path $dest $name)
+        $installed += $name
+    }
+    foreach ($backup in $backups.Values) {
+        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    foreach ($name in $installed) {
+        Remove-Item -LiteralPath (Join-Path $dest $name) -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($name in $backups.Keys) {
+        Move-Item -LiteralPath $backups[$name] -Destination (Join-Path $dest $name)
+    }
+    throw
+} finally {
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Host "程序位于 $dest。双击 m3-reader-gui.exe；终端中直接运行 m3-reader.exe。"
 

@@ -336,11 +336,11 @@ class TerminalLibrary:
         self.reader.control.key_bindings = self._pane_keys("reader")
         self.status = Label(text=lambda: [(f"class:{self._status_level}", f" {self._status_text} ")],
                             style="class:status")
-        self.heading = Label(text=self._heading_fragments, style="class:heading")
-        body = VSplit([Frame(self.tree, title="资源目录", width=Dimension(preferred=32, min=24, max=40)),
-                       Frame(self.reader, title="阅读 / 搜索 / 差异")], padding=1)
+        self.directory_frame = Frame(self.tree, title="资源目录", width=Dimension(preferred=32, min=24, max=40))
+        self.reader_frame = Frame(self.reader, title="阅读区")
+        body = VSplit([self.directory_frame, self.reader_frame], padding=1)
         self.app = Application(input=input, output=output,
-                               layout=Layout(HSplit([self.heading, body, self.status,
+                               layout=Layout(HSplit([body, self.status,
                                                      Frame(self.command, title="命令 · Tab 补全 · ↑↓ 历史")]),
                                              focused_element=self.command),
                                key_bindings=self._keys(), full_screen=True, mouse_support=True,
@@ -348,7 +348,6 @@ class TerminalLibrary:
                                    "": "bg:#1f2329 #a8cfa7",
                                    "frame.border": "#688a71",
                                    "frame.label": "bold #cce08c",
-                                   "heading": "bg:#202a30 #cce08c bold",
                                    "focus": "bg:#385246 #f0f9f9 bold",
                                    "status": "bg:#29313a #cce08c",
                                    "status.info": "bg:#29313a #cce08c",
@@ -645,10 +644,6 @@ class TerminalLibrary:
         if window is self.command.window:
             return "命令"
         return "目录"
-
-    def _heading_fragments(self):
-        return [("", "  M3 READER  /  资料终端     下载 · OCR · 本地"),
-                ("class:focus", f"  [{self._focus_name()}]")]
 
     def _set_status(self, text: str, level: str = "status.info") -> None:
         self._status_text = " ".join(str(text).split())

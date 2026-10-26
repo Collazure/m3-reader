@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import sys
-import importlib
 from pathlib import Path
 
 import click
@@ -190,7 +189,10 @@ def build_cli() -> click.Group:
                 raise click.ClickException(f"找不到图形程序：{gui_executable}")
             subprocess.Popen([str(gui_executable)], cwd=str(gui_executable.parent))
         else:
-            importlib.import_module("prts_tool.gui").main()
+            import subprocess
+            source_root = Path(__file__).resolve().parent.parent
+            subprocess.run([sys.executable, "-m", "prts_tool.gui_bootstrap"],
+                           cwd=str(source_root), check=True)
 
     @cli.command("tui", context_settings=CONTEXT_SETTINGS)
     def tui_cmd() -> None:

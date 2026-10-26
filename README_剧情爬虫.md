@@ -1,7 +1,7 @@
 # M3 Reader · PRTS 文本采集与阅读
 
 把 [PRTS 明日方舟中文 Wiki](https://prts.wiki) 的各类文本 / 图片抓成便于阅读的本地副本，
-纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.9.4。
+纯标准库 + click 作为采集核心，可反复增量刷新。当前源码版本：2.10.1。
 
 资源已迁入 [resources/](resources/README.md)。其他设备安装包位于 [installpacks/](installpacks/README.md)。GUI / TUI 的安装与使用见 [资料终端说明](docs/APP_README.md)；需求记录见 [需求记录](docs/REQUIREMENTS.md)，
 调研事实及待验证事项见 [已知信息](docs/KNOWN_INFO.md)，
@@ -95,7 +95,7 @@ m3-reader tui                      # TUI 资料终端（需要 prompt_toolkit）
 > **不再需要写 `python 脚本名`**：`scripts/install_cli.sh` 只建立软链接，不复制代码，
 > 项目移动或外置盘重新挂载后重新运行一次即可。默认使用系统的 `python3`
 > （依赖 `click`；Ubuntu 可 `sudo apt install python3-click`），
-> 也可用 `M3_READER_PYTHON` 指定解释器、`M3_READER_HOME` 指定项目根。
+> 也可用 `M3_READER_PYTHON` 指定解释器、`M3_READER_HOME` 指定数据根目录；脚本始终按自身位置定位源码。
 > `m3-reader-gui` 等价于 `m3-reader gui`。原来的 `python prts_crawler.py …` 仍然可用。
 > Ubuntu 所需 apt 依赖（QtPdf、prompt_toolkit、tesseract、poppler、中文字体等）
 > 见[资料终端说明](docs/APP_README.md)的「Ubuntu 依赖」。
@@ -586,6 +586,10 @@ CLI 会自动发现；同时在本 README 的模块表、输出树和 `CHANGELOG
 
 ### 8.3 版本日志
 
+* **2.10.1（2026-10-26）**：GUI 增加圆角、柔亮及不同色系主题，外观菜单集中管理字号和主题；阅读页轻量过渡，资源目录切换等新窗口就绪后再关闭旧窗口。TUI 移除重复顶栏。Windows 向导分别选择程序和 resources 目录并配置命令 PATH；Linux 便携/源码安装为 Bash 配置 `~/.local/bin`。
+* **2.10.0（2026-10-26）**：Windows 安装向导可分别选择程序与 resources 目录；GUI 首启可选择、验证资源目录，后续可从“导入”菜单切换、移动或导入。Linux 增加可升级的便携安装脚本和 `.deb`；安装包只含对应平台程序并保留已有资源。
+* **2.9.5（2026-10-26）**：更新历史快照改存临时磁盘数据库，降低更新时的常驻内存；
+  pytest 默认只收集项目测试。独立可执行程序需重新构建。
 * **2.9.4（2026-10-26）**：轻量化优化：GUI 资源树按需加载、图片标签页释放非活动图、
   大地巡旅 PDF 改用页面图逐页查看；TUI `back` 改为按路径重开文档；构建排除未用 Qt 模块。
   实测启动 125→114 MB、5 张图 203→131 MB、打开巡旅 PDF 525→127 MB、搜索后 241→159 MB。

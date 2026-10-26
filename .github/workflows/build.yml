@@ -15,21 +15,55 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install -e ".[all]" pyinstaller pillow pytest
+      - name: Install Windows installer compiler
+        run: choco install innosetup --yes --no-progress
       - name: Test
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = 'offscreen'
-          python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+          python -m pytest -q tests/test_resource_settings.py tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_library_history.py::LibraryHistoryTest::test_history_keeps_old_and_new_lines tests/test_library_history.py::LibraryHistoryTest::test_disk_snapshot_keeps_change_semantics_and_cleans_up tests/test_library_history.py::LibraryHistoryTest::test_disk_snapshot_ignores_timestamp_only_changes_and_cleans_on_save_error tests/test_library_history.py::LibraryHistoryTest::test_update_initialization_failure_cleans_snapshot_and_unlocks tests/test_gui_layout.py::test_first_launch_initializes_selected_default_resources tests/test_gui_layout.py::test_theme_selection_persists_and_rounded_controls tests/test_gui_layout.py::test_light_tab_transition_releases_effect tests/test_gui_layout.py::test_resource_switch_waits_for_new_window tests/test_gui_layout.py::test_resource_switch_keeps_current_window_if_launch_fails tests/test_gui_layout.py::test_cli_gui_starts_from_source_root_outside_project tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_compact_header_and_reader_title tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
       - name: Build and package
         shell: pwsh
         run: |
           ./scripts/build_windows.ps1
+          & bin/windows/m3-reader.exe --version
           python scripts/package_installpacks.py --platform windows
+          $setup = Get-ChildItem installpacks/windows/*-setup.exe | Select-Object -First 1
+          $installRoot = Join-Path $env:RUNNER_TEMP 'M3 Reader Upgrade Test'
+          $resource = Join-Path $installRoot 'resources\local\keep.txt'
+          New-Item -ItemType Directory -Force -Path (Split-Path $resource) | Out-Null
+          Set-Content -LiteralPath $resource -Value 'keep user data'
+          $legacyGui = Join-Path $installRoot 'bin\windows\m3-reader-gui.exe'
+          New-Item -ItemType Directory -Force -Path (Split-Path $legacyGui) | Out-Null
+          Copy-Item bin/windows/m3-reader-gui.exe $legacyGui
+          $shell = New-Object -ComObject WScript.Shell
+          $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'M3 Reader.lnk'))
+          $shortcut.TargetPath = $legacyGui
+          $shortcut.Save()
+          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0) { throw "首次安装失败：$LASTEXITCODE" }
+          $externalResources = Join-Path $env:RUNNER_TEMP 'M3 Reader External Resources'
+          $externalFile = Join-Path $externalResources 'local\external.txt'
+          New-Item -ItemType Directory -Force -Path (Split-Path $externalFile) | Out-Null
+          Set-Content -LiteralPath $externalFile -Value 'external user data'
+          New-Item -Path 'HKCU:\Software\M3 Reader' -Force | Out-Null
+          Set-ItemProperty -Path 'HKCU:\Software\M3 Reader' -Name ResourcesLocation -Value $externalResources
+          & $setup.FullName /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0) { throw "旧版本升级失败：$LASTEXITCODE" }
+          if ((Get-Content -LiteralPath $resource -Raw).Trim() -ne 'keep user data') { throw '用户资料被覆盖' }
+          if ((Get-Content -LiteralPath $externalFile -Raw).Trim() -ne 'external user data') { throw '外部 resources 被覆盖' }
+          & (Join-Path $installRoot 'bin\windows\m3-reader.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw '安装后的 CLI 无法启动' }
+          $registeredPath = (Get-ItemProperty -Path 'HKCU:\Environment' -Name Path).Path
+          if (-not (($registeredPath -split ';') -contains (Join-Path $installRoot 'bin\windows'))) {
+            throw '安装向导未将 m3-reader 加入用户 PATH'
+          }
+          if (Test-Path (Join-Path $installRoot 'bin\ubuntu')) { throw 'Windows 安装包混入 Linux 程序' }
       - uses: actions/upload-artifact@v4
         with:
           name: m3-reader-windows
           path: |
-            installpacks/windows/*.zip
+            installpacks/windows/*-setup.exe
             installpacks/SHA256SUMS.txt
 
   ubuntu:
@@ -48,11 +82,12 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+        run: python -m pytest -q tests/test_resource_settings.py tests/test_installers.py tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_library_history.py::LibraryHistoryTest::test_history_keeps_old_and_new_lines tests/test_library_history.py::LibraryHistoryTest::test_disk_snapshot_keeps_change_semantics_and_cleans_up tests/test_library_history.py::LibraryHistoryTest::test_disk_snapshot_ignores_timestamp_only_changes_and_cleans_on_save_error tests/test_library_history.py::LibraryHistoryTest::test_update_initialization_failure_cleans_snapshot_and_unlocks tests/test_gui_layout.py::test_first_launch_initializes_selected_default_resources tests/test_gui_layout.py::test_theme_selection_persists_and_rounded_controls tests/test_gui_layout.py::test_light_tab_transition_releases_effect tests/test_gui_layout.py::test_resource_switch_waits_for_new_window tests/test_gui_layout.py::test_resource_switch_keeps_current_window_if_launch_fails tests/test_gui_layout.py::test_cli_gui_starts_from_source_root_outside_project tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_compact_header_and_reader_title tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
       - name: Build and package
         run: |
           bash scripts/build_ubuntu.sh
           python scripts/package_installpacks.py --platform ubuntu
+          dpkg-deb -I installpacks/debian/m3-reader_*_amd64.deb
           bin/ubuntu/m3-reader --version
           status=0
           QT_QPA_PLATFORM=offscreen timeout 5s bin/ubuntu/m3-reader-gui || status=$?
@@ -62,4 +97,5 @@ jobs:
           name: m3-reader-ubuntu
           path: |
             installpacks/debian/*.tar.gz
+            installpacks/debian/*.deb
             installpacks/SHA256SUMS.txt

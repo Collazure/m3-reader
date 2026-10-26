@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -14,10 +15,25 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QImage, QTextCursor, QTextDocument
 
-from prts_tool.gui import BookPageReader, CommandLine, MainWindow, MarkdownReader, TextReader
+from prts_tool.gui import BookPageReader, CommandLine, MainWindow, MarkdownReader, TextReader, THEME_COLORS, style_for_theme
 from prts_tool.library import SearchHit
 from prts_tool.paths import RESOURCES_DIR
 from prts_tool import reading
+
+
+def test_first_launch_initializes_selected_default_resources(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from prts_tool import gui, gui_bootstrap
+    from prts_tool.resource_settings import configured_root
+
+    monkeypatch.setenv("M3_READER_HOME", str(tmp_path))
+    monkeypatch.setenv("M3_READER_SETTINGS", str(tmp_path / "settings.json"))
+    monkeypatch.delenv("M3_READER_RESOURCES", raising=False)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(gui, "main", lambda app=None: 0)
+    assert gui_bootstrap.main() == 0
+    assert configured_root() == tmp_path / "resources"
+    assert (tmp_path / "resources/collected/prts_text").is_dir()
 
 
 @pytest.fixture(scope="module")
@@ -62,13 +78,16 @@ def test_menus_command_bar_and_icon(app):
     window = MainWindow()
     try:
         labels = [action.text() for action in window.menuBar().actions()]
-        assert labels == ["导入", "阅读", "检索", "工具", "视图", "帮助"]
-        assert [action.text() for action in window.import_menu.actions() if action.menu()] == ["在线采集", "本地资料"]
+        assert labels == ["导入", "阅读", "检索", "工具", "视图", "外观", "帮助"]
+        assert [action.text() for action in window.import_menu.actions() if action.menu()] == ["在线采集", "本地资料", "resources 目录"]
         assert any(action.text().startswith("更新资料") for action in window.online_menu.actions())
         assert any(action.text().startswith("导入新资料") for action in window.local_menu.actions())
         assert any(action.text() == "更新意见" for action in window.help_menu.actions())
         assert any(action.text() == "命令栏" for action in window.tools_menu.actions())
-        assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示", "阅读字号", "任务栏字号"]
+        assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示"]
+        assert [action.text() for action in window.appearance_menu.actions()] == ["字号", "主题"]
+        assert [action.text() for action in window.font_root_menu.actions()] == ["阅读字号", "任务栏字号"]
+        assert [action.text() for action in window.theme_menu.actions()] == ["经典", "柔亮", "深海蓝", "暖棕"]
         assert window.header_toolbar.actions()[-1].defaultWidget() is window.header_controls
         assert not window.windowIcon().isNull()
         assert window.command_dock.isHidden()
@@ -82,6 +101,108 @@ def test_menus_command_bar_and_icon(app):
         assert window.command_dock.isHidden()
     finally:
         window.close()
+
+
+def test_theme_selection_persists_and_rounded_controls(app, tmp_path, monkeypatch):
+    from prts_tool.appearance import load_theme
+
+    monkeypatch.setenv("M3_READER_SETTINGS", str(tmp_path / "settings.json"))
+    window = MainWindow()
+    try:
+        assert "border-radius: 8px" in style_for_theme("classic")
+        assert window.theme_actions["classic"].isChecked()
+        window.theme_actions["ocean"].trigger()
+        assert window.theme_id == "ocean"
+        assert window.theme_actions["ocean"].isChecked()
+        assert load_theme() == "ocean"
+        assert THEME_COLORS["ocean"]["base"] in app.styleSheet()
+        window.set_theme("soft")
+        assert load_theme() == "soft"
+    finally:
+        window.close()
+
+
+def test_light_tab_transition_releases_effect(app, monkeypatch):
+    from PySide6.QtWidgets import QWidget
+
+    window = MainWindow()
+    window.show()
+    first, second = QWidget(), QWidget()
+    try:
+        window.tabs.addTab(first, "一")
+        window.tabs.addTab(second, "二")
+        window.tabs.setCurrentWidget(first)
+        window.tabs.setCurrentWidget(second)
+        assert window._tab_animation is not None
+        QTest.qWait(220)
+        assert window._tab_animation is None
+        assert second.graphicsEffect() is None
+        monkeypatch.setenv("M3_READER_REDUCE_MOTION", "1")
+        window.tabs.setCurrentWidget(first)
+        assert window._tab_animation is None
+    finally:
+        window.close()
+
+
+def test_resource_switch_waits_for_new_window(app, monkeypatch):
+    window = MainWindow()
+    closed, launches = [], []
+
+    class StartedProcess:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr("prts_tool.gui.subprocess.Popen", lambda *args, **kwargs: launches.append((args, kwargs)) or StartedProcess())
+            patch.setattr(window, "close", lambda: closed.append(True) or True)
+            window._restart_with_resources()
+            assert not closed
+            assert launches[0][1]["cwd"] == str(Path(__file__).resolve().parent.parent)
+            assert not window.resources_menu.isEnabled()
+            window._restart_marker.write_text("ready", encoding="utf-8")
+            window._check_restart()
+            assert closed
+            assert window.resources_menu.isEnabled()
+    finally:
+        window._restart_timer.stop()
+        if window._restart_marker:
+            window._restart_marker.unlink(missing_ok=True)
+        window.close()
+
+
+def test_resource_switch_keeps_current_window_if_launch_fails(app, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    window = MainWindow()
+    closed, warnings = [], []
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr("prts_tool.gui.subprocess.Popen", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("launch failed")))
+            patch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+            patch.setattr(window, "close", lambda: closed.append(True) or True)
+            window._restart_with_resources()
+            assert not closed
+            assert warnings
+            assert not window._restart_timer.isActive()
+    finally:
+        window.close()
+
+
+def test_cli_gui_starts_from_source_root_outside_project(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+    from prts_tool.cli import build_cli
+
+    launches = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: launches.append((args, kwargs)))
+    result = CliRunner().invoke(build_cli(), ["gui"])
+    assert result.exit_code == 0, result.output
+    assert launches[0][0][0][1:] == ["-m", "prts_tool.gui_bootstrap"]
+    assert launches[0][1]["cwd"] == str(Path(__file__).resolve().parent.parent)
 
 
 def test_command_line_completion_and_history(app):
@@ -245,8 +366,8 @@ def test_search_tab_tags_and_independent_font_commands(app):
         assert "#664042" in no.styleSheet()
         assert "#efadad" in window.tag_labels["特殊"].styleSheet()
         no.setChecked(False)
-        assert "#29383a" in no.styleSheet()
-        assert "#cce08c" in window.tag_labels["特殊"].styleSheet()
+        assert THEME_COLORS[window.theme_id]["button"] in no.styleSheet()
+        assert THEME_COLORS[window.theme_id]["accent"] in window.tag_labels["特殊"].styleSheet()
         window.command_input.setText("font menu 16")
         window.execute_gui_command()
         assert window.menu_font_size == 16

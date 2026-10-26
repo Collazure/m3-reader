@@ -9,6 +9,9 @@ if [[ ! -x "$python" ]]; then python="$(command -v python3)"; fi
 }
 dest="$project_root/bin/ubuntu"
 work="$project_root/build/pyinstaller-ubuntu"
+mkdir -p "$dest" "$work"
+staging="$(mktemp -d "$work/staging.XXXXXX")"
+trap 'rm -rf "$staging"' EXIT
 excludes=(
   --exclude-module PySide6.Qt3DAnimation
   --exclude-module PySide6.Qt3DCore
@@ -57,9 +60,9 @@ excludes=(
   --exclude-module PIL
   --exclude-module numpy
 )
-"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --console --name m3-reader --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --exclude-module PySide6 "${excludes[@]}" "$project_root/scripts/entry_cli.py"
-"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --windowed --name m3-reader-gui --add-data "$project_root/assets/icon.png:assets" --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets "${excludes[@]}" "$project_root/scripts/entry_gui.py"
-cat > "$dest/m3-reader-gui.desktop" <<EOF
+"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --console --name m3-reader --distpath "$staging" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --exclude-module PySide6 "${excludes[@]}" "$project_root/scripts/entry_cli.py"
+"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --windowed --name m3-reader-gui --add-data "$project_root/assets/icon.png:assets" --distpath "$staging" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets "${excludes[@]}" "$project_root/scripts/entry_gui.py"
+cat > "$staging/m3-reader-gui.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=M3 Reader 资料终端
@@ -70,6 +73,30 @@ Icon=$project_root/assets/icon.png
 Terminal=false
 Categories=Office;Utility;
 EOF
+backup="$(mktemp -d "$work/backup.XXXXXX")"
+names=(m3-reader m3-reader-gui m3-reader-gui.desktop)
+installed=()
+restore_previous() {
+  for name in "${installed[@]}"; do rm -f "$dest/$name"; done
+  for name in "${names[@]}"; do
+    if [[ -e "$backup/$name" ]]; then mv -f "$backup/$name" "$dest/$name"; fi
+  done
+}
+for name in "${names[@]}"; do
+  if [[ -e "$dest/$name" ]] && ! mv -f "$dest/$name" "$backup/$name"; then
+    restore_previous
+    exit 1
+  fi
+done
+for name in "${names[@]}"; do
+  if mv -f "$staging/$name" "$dest/$name"; then
+    installed+=("$name")
+  else
+    restore_previous
+    exit 1
+  fi
+done
+rm -rf "$backup"
 chmod +x "$dest/m3-reader-gui" "$dest/m3-reader" "$dest/m3-reader-gui.desktop"
 echo "程序位于 $dest。双击 m3-reader-gui；终端中直接运行 m3-reader。"
 
