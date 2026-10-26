@@ -21,7 +21,7 @@ from prts_tool.paths import RESOURCES_DIR
 from prts_tool import reading
 
 
-def test_first_launch_initializes_default_resources_without_modal(app, tmp_path, monkeypatch):
+def test_first_launch_initializes_selected_default_resources(app, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     from prts_tool import gui, gui_bootstrap
     from prts_tool.resource_settings import configured_root
