@@ -186,7 +186,8 @@ Windows 双击 `bin/windows/m3-reader-gui.exe`，Ubuntu 双击或从应用菜单
 Windows 上已验证 GUI 初始化、文本、图片及 454 页 PDF 打开与页码定位，并验证 TUI 启动。
 Windows 与 Ubuntu 使用同一套 GUI/TUI 源码，但安装包分别只包含本平台程序。
 2.10.1 的 Linux CLI/GUI、便携包与 `.deb` 在 Ubuntu 26.04 构建，并完成离屏 GUI 启动、
-便携版重复安装保留资料及 `.deb` 解包检查。Windows 2.10.1 向导已在 Windows 编译；
+便携版重复安装保留资料及 `.deb` 解包检查。Windows 2.10.1 向导已在 Windows 编译，
+并通过独立安装目录、自定义 resources 路径、PATH 与升级保留资料的 CI 检查；
 其他 Linux 发行版和桌面会话仍需实际验证。没有图形桌面时可继续使用 CLI/TUI。
 
 

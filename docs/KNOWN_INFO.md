@@ -54,8 +54,8 @@
 | K45 | Qt 全局样式中的固定字号导致任务栏字号不一致；菜单与搜索区分行，放大时搜索控件再分两行 | prts_tool/gui.py；2026-10-26 |
 | K46 | 轻量化：GUI 树按需展开、图片标签释放非活动 pixmap、大地巡旅 PDF 用页面图；TUI back 按路径重开；构建排除未用 Qt 模块 | prts_tool/gui.py、tui.py、scripts/build_*；实测启动 125→114 MB、5 图 203→131 MB、巡旅 PDF 525→127 MB、搜索后 241→159 MB |
 | K47 | 更新历史仅把运行前快照写入临时磁盘数据库，结束时逐文件比较并清理；pytest 只收集项目测试 | prts_tool/history.py、jobs.py、pyproject.toml、tests/test_library_history.py；本机 5145 文件无变化对比，峰值约 84→35 MiB、耗时 0.91→1.12 秒；共用代码覆盖 Windows/Linux，跨平台 CI 已加入测试；2026-10-26 |
-| K48 | 两端构建脚本先写暂存目录，构建成功后替换程序；模拟构建失败验证原二进制未变 | scripts/build_windows.ps1、scripts/build_ubuntu.sh；Windows 2.10.1 已在本机重建，Linux 双端 CI 待验证；2026-10-26 |
-| K49 | Windows 安装向导和 Linux 便携脚本支持升级并保留用户资源；`.deb` 只拥有程序文件，用户数据在个人目录 | scripts/windows_installer.iss、install_ubuntu_portable.sh、deb_launcher.sh、package_installpacks.py、tests/test_installers.py；Windows 2.10.1 向导已编译，Linux 便携版重复安装及 `.deb` 解包待新 CI 复验；2026-10-26 |
+| K48 | 两端构建脚本先写暂存目录，构建成功后替换程序；模拟构建失败验证原二进制未变 | scripts/build_windows.ps1、scripts/build_ubuntu.sh；2.10.1 Windows/Ubuntu 构建均由 GitHub Actions 验证通过；2026-10-26 |
+| K49 | Windows 安装向导和 Linux 便携脚本支持升级并保留用户资源；`.deb` 只拥有程序文件，用户数据在个人目录 | scripts/windows_installer.iss、install_ubuntu_portable.sh、deb_launcher.sh、package_installpacks.py、tests/test_installers.py；CI 已验证 Windows 安装/升级、独立 resources 路径与 PATH，及 Ubuntu 便携重复安装和 `.deb` 解包；2026-10-26 |
 | K50 | Windows 向导添加当前用户 PATH 并在卸载时移除自己的条目；Linux 源码/便携安装幂等设置 Bash 用户命令路径 | scripts/windows_installer.iss、scripts/ensure_user_path.sh；2026-10-26 |
 
 ## 待实现 / 待验证
