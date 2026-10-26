@@ -10,18 +10,13 @@ build/
 dist/
 .build-deps/
 
-# 采集数据与本地资料：体积大、可重新生成，不属于工程代码
-/resources/collected/
-/resources/local/
-/resources/ocr/
-/resources/updates/
+# 采集数据与本地资料：仓库只保留说明，正文/PDF/图片/OCR 一律不入库
+/resources/*
+!/resources/README.md
 
-# 运行期数据：历史、锁、个人意见
-/workspace/history/
-/workspace/notes.json
-/workspace/update.lock
-/workspace/更新意见.md
-/workspace/reading.json
+# 运行期数据：历史、锁、个人意见、阅读位置
+/workspace/*
+!/workspace/README.md
 
 # 构建 / 发布产物
 /bin/

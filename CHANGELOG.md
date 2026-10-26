@@ -17,6 +17,10 @@
   * TUI 页面历史对已打开文档只保存路径与行号，`back` 时从磁盘重开，不再长期保留多份全文。
 * 打包裁剪：Windows / Ubuntu 构建排除未使用的 Qt3D、QtQuick、QtWebEngine、Multimedia、
   Charts、WebSockets 等模块；Ubuntu 构建增加 `--strip`。需重新构建才会生成更小的可执行文件。
+* 仓库只跟踪程序、代码与文档：`resources/`、`workspace/` 除各自 `README.md` 外全部忽略，
+  采集正文、PDF、图片、OCR、历史与意见不会进入 Git；历史检查未发现资源正文。
+* 已重建 Ubuntu 2.9.4 源码包与 x64 便携包（便携包内含 2.9.4 CLI/GUI 二进制、空资源目录）。
+  Windows 2.9.4 便携包需在 Windows 构建机上重新生成；现有 2.9.2 包保留。
 * 版本升至 2.9.4。
 
 ## 2.9.3 — 2026-10-26

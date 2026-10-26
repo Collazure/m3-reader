@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-python="$project_root/.venv/bin/python"
+python="${M3_READER_PYTHON:-$project_root/.venv/bin/python}"
 if [[ ! -x "$python" ]]; then python="$(command -v python3)"; fi
 "$python" -c 'import PyInstaller, PySide6, prompt_toolkit' || {
   echo '构建 Python 需要安装 .[all] 与 pyinstaller。' >&2
