@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.9.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.9.1 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -48,6 +48,8 @@
 | K39 | GUI 全库检索为阅读标签页，右侧标签支持包含与排除；当前目录依阅读位置确定，命中保持原文行号 | prts_tool/gui.py、library.py；2026-10-26 |
 | K40 | GUI 任务栏和阅读字号独立；TUI 无权更改终端字体。`find` 在原文中定位；TUI Markdown 终端预览保留原始行数 | prts_tool/gui.py、tui.py、markdown.py；2026-10-26 |
 | K41 | GitHub Actions 首次 Ubuntu 任务在导入 PySide6 时缺少 `libEGL.so.1`；工作流已增加 Qt 运行库安装步骤 | .github/workflows/build.yml；2026-10-26 |
+| K42 | 检索命中改为可换行的富文本两行卡片；统计放标签/状态栏；普通命中只打开原文，PDF 显式选择；Markdown 定位按需渲染 | prts_tool/gui.py；2026-10-26 |
+| K43 | Ubuntu CI 曾因 build_ubuntu.sh 中混入 CRLF 在打包末尾失败；.gitattributes 固定 shell 脚本 LF | .gitattributes、scripts/build_ubuntu.sh；2026-10-26 |
 
 ## 待实现 / 待验证
 

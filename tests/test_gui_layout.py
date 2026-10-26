@@ -105,17 +105,33 @@ def test_search_results_in_reader_tab_with_two_line_entries(app):
         window.show_hits([SearchHit("local/a.md", 1, "文件名：a.md", kind="title"),
                           SearchHit("local/a.md", 5, "正文命中"),
                           SearchHit("collected/b.txt", 2, "另一条命中")])
-        assert window.search_results.topLevelItemCount() == 3
-        assert window.search_results.topLevelItem(0).childCount() == 1
-        assert window.search_results.topLevelItem(0).child(0).text(0).strip().startswith("[文件名]")
+        text = window.search_results.toPlainText()
+        assert text.count("本地/a.md") == 2
+        assert "[文件名] 文件名：a.md" in text
+        assert "正文命中" in text
+        assert "下载/b.txt:2" in text
         assert "2 个文件" in window.search_summary.text()
-        assert window.search_results.topLevelItem(0).text(0).endswith("本地/a.md:1")
+        assert window.search_summary.isHidden()
         assert window.tabs.indexOf(window.search_panel) < 0  # the tab opens when a search starts
         calls = []
         window.global_search = lambda: calls.append((window.global_input.text(), window.search_scope.currentData()))
         window.command_input.setText("search --scope local 泰拉 年表")
         window.execute_gui_command()
         assert calls == [("泰拉 年表", "local")]
+    finally:
+        window.close()
+
+
+def test_search_hit_opens_source_without_eager_markdown_or_pdf(app):
+    window = MainWindow()
+    try:
+        window.show_hits([SearchHit("README.md", 3, "内容")])
+        window.open_search_hit(QUrl("m3hit:0"))
+        reader = window.tabs.currentWidget()
+        assert isinstance(reader, MarkdownReader)
+        assert reader.path == RESOURCES_DIR / "README.md"
+        assert reader.textCursor().blockNumber() == 2
+        assert not reader._rendered
     finally:
         window.close()
 

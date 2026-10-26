@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sys
 import codecs
+import html
 from pathlib import Path
 
 from . import __version__
@@ -151,7 +152,8 @@ class TextReader(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.setFont(QFont("Maple Mono NF CN", 14))
         self.setPlainText(path.read_text(encoding="utf-8", errors="replace"))
-        self.highlighter = ReaderHighlighter(self.document())
+        # Rehighlighting every block of a large OCR file stalls navigation.
+        self.highlighter = ReaderHighlighter(self.document()) if path.stat().st_size < 500_000 else None
         self.line_area = LineArea(self)
         self.blockCountChanged.connect(self._margin)
         self.updateRequest.connect(self._scroll_margin)
@@ -384,7 +386,7 @@ class MarkdownReader(TextReader):
     link_activated = Signal(QUrl)
     source_requested = Signal()
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, initial_formatted: bool = True):
         super().__init__(path)
         self.browser = MarkdownBrowser(self)
         self.browser.setFont(self.font())
@@ -393,10 +395,10 @@ class MarkdownReader(TextReader):
             "h1,h2,h3 { color: #cce08c; margin-top: 16px; } "
             "a { color: #8cd0d3; } blockquote { color: #a8b9a7; margin-left: 18px; } "
             "code,pre { color: #d5e6c7; background-color: #29383a; }")
-        self.browser.setMarkdown(self.toPlainText())
         self.browser.anchorClicked.connect(self.link_activated)
+        self._rendered = False
         self.formatted = False
-        self.set_formatted(True)
+        self.set_formatted(initial_formatted)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -404,6 +406,9 @@ class MarkdownReader(TextReader):
             self.browser.setGeometry(self.rect())
 
     def set_formatted(self, enabled: bool, *, focus: bool = True):
+        if enabled and not self._rendered:
+            self.browser.setMarkdown(self.toPlainText())
+            self._rendered = True
         self.formatted = enabled
         self._margin()
         if enabled:
@@ -706,12 +711,13 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(6, 4, 6, 4)
-        self.search_summary = QLabel("输入关键词检索文件名和正文；双击结果跳转")
-        layout.addWidget(self.search_summary)
+        self.search_summary = QLabel("输入关键词检索文件名和正文；点击结果跳转", panel)
+        self.search_summary.hide()
         search_split = QSplitter()
-        self.search_results = QTreeWidget()
-        self.search_results.setHeaderLabels(["索引 / 正文", "位置"])
-        self.search_results.itemDoubleClicked.connect(self.open_search_hit)
+        self.search_results = QTextBrowser()
+        self.search_results.setOpenLinks(False)
+        self.search_results.anchorClicked.connect(self.open_search_hit)
+        self.search_hits = []
         search_split.addWidget(self.search_results)
         filters = QWidget()
         filters_layout = QVBoxLayout(filters)
@@ -1216,10 +1222,10 @@ class MainWindow(QMainWindow):
         else:
             suffix = path.suffix.lower()
             if suffix in TEXT_SUFFIXES:
-                reader = MarkdownReader(path) if suffix == ".md" else TextReader(path)
+                reader = MarkdownReader(path, initial_formatted=self.markdown_formatted and not line) if suffix == ".md" else TextReader(path)
                 reader.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if self.wrap_enabled else QPlainTextEdit.LineWrapMode.NoWrap)
                 if isinstance(reader, MarkdownReader):
-                    reader.set_formatted(self.markdown_formatted)
+                    reader.set_formatted(self.markdown_formatted and not line)
                     reader.link_activated.connect(lambda url, source=path: self.open_markdown_link(source, url))
                     reader.source_requested.connect(lambda: self.markdown_action.setChecked(False))
                 if self.reader_font_size != 14:
@@ -1334,6 +1340,7 @@ class MainWindow(QMainWindow):
         self.search_summary.setText(f"正在检索「{term}」…")
         if self.tabs.indexOf(self.search_panel) < 0:
             self.tabs.addTab(self.search_panel, "检索结果")
+        self.tabs.setTabText(self.tabs.indexOf(self.search_panel), "检索中…")
         self.tabs.setCurrentWidget(self.search_panel)
         include = {tag for tag, (yes, _) in self.tag_buttons.items() if yes.isChecked()}
         exclude = {tag for tag, (_, no) in self.tag_buttons.items() if no.isChecked()}
@@ -1343,17 +1350,23 @@ class MainWindow(QMainWindow):
         self.search_worker.start()
 
     def show_hits(self, hits):
-        self.search_results.clear()
+        self.search_hits = hits
+        rows = ["<html><body style='color:#a8cfa7;font-family:monospace'>"]
         for index, hit in enumerate(hits, 1):
             location = f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行"
-            head = QTreeWidgetItem([f"{index:>4}. {display_resource_id(hit.resource_id)}:{hit.line}", location])
-            head.setToolTip(0, hit.resource_id)
-            head.setData(0, Qt.ItemDataRole.UserRole, hit)
-            self.search_results.addTopLevelItem(head)
-            body = QTreeWidgetItem([f"      {'[文件名] ' if hit.kind == 'title' else ''}{hit.excerpt}", ""])
-            body.setData(0, Qt.ItemDataRole.UserRole, hit)
-            head.addChild(body)
-            head.setExpanded(True)
+            source = html.escape(display_resource_id(hit.resource_id))
+            excerpt = html.escape(hit.excerpt)
+            title = f"{index:04d}  {source}:{hit.line}  ·  {location}"
+            body = ("[文件名] " if hit.kind == "title" else "") + excerpt
+            rows.append(f"<p style='margin:9px 8px 1px'><a href='m3hit:{index - 1}' "
+                        f"style='color:#8cd0d3;text-decoration:none'>{title}</a></p>")
+            rows.append(f"<p style='margin:0 8px 9px 34px'><a href='m3hit:{index - 1}' "
+                        f"style='color:#cce08c;text-decoration:none'>{body}</a></p>")
+            if hit.page and hit.resource_id.endswith("大地巡旅_OCR.txt"):
+                rows.append(f"<p style='margin:0 8px 9px 34px'><a href='m3pdf:{index - 1}' "
+                            f"style='color:#8cd0d3'>查看 PDF 第 {hit.page} 页</a></p>")
+        rows.append("</body></html>")
+        self.search_results.setHtml("".join(rows))
         files = len({hit.resource_id for hit in hits})
         message = f"{files} 个文件 · {len(hits)} 条命中"
         if len(hits) >= 1000:
@@ -1361,15 +1374,24 @@ class MainWindow(QMainWindow):
         if not hits:
             message = "没有命中；试试更短的关键词或切换来源范围"
         self.search_summary.setText(message)
+        tab_index = self.tabs.indexOf(self.search_panel)
+        if tab_index >= 0:
+            self.tabs.setTabText(tab_index, f"检索 · {files}文件/{len(hits)}条")
         self.statusBar().showMessage(message)
 
-    def open_search_hit(self, item, _column):
-        hit = item.data(0, Qt.ItemDataRole.UserRole)
-        if not hit:
+    def open_search_hit(self, url: QUrl):
+        if url.scheme() not in {"m3hit", "m3pdf"}:
+            return
+        try:
+            hit = self.search_hits[int(url.path())]
+        except (ValueError, IndexError):
+            return
+        if url.scheme() == "m3pdf":
+            pdf = next(BOOK_DIR.glob("*.pdf"), None)
+            if pdf and hit.page:
+                self.open_resource(pdf, page=hit.page)
             return
         self.open_resource(resource_path(hit.resource_id), line=hit.line)
-        if hit.page and hit.resource_id.endswith("大地巡旅_OCR.txt"):
-            self.open_resource(next(BOOK_DIR.glob("*.pdf")), page=hit.page)
 
     def reload_history(self):
         self.history_tree.clear()

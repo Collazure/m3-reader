@@ -4,9 +4,9 @@
 
 | 包 | 用途 |
 | --- | --- |
-| `windows/m3-reader-2.9.0-windows-x64-portable.zip` | Windows 64 位便携版；解压后双击 `install_windows.cmd` 一键安装，或直接运行 GUI |
-| `debian/m3-reader-2.9.0-ubuntu-source.tar.gz` | Ubuntu 源码安装版；解压后运行一次 `bash scripts/install_ubuntu.sh` |
-| `debian/m3-reader-2.9.0-ubuntu-x64-portable.tar.gz` | Ubuntu 64 位便携版；从仓库 Ubuntu 构建工作流生成，解压后运行 `bash scripts/install_ubuntu_portable.sh` 一键创建应用菜单入口 |
+| `windows/m3-reader-2.9.1-windows-x64-portable.zip` | Windows 64 位便携版；解压后双击 `install_windows.cmd` 一键安装，或直接运行 GUI |
+| `debian/m3-reader-2.9.1-ubuntu-source.tar.gz` | Ubuntu 源码安装版；解压后运行一次 `bash scripts/install_ubuntu.sh` |
+| `debian/m3-reader-2.9.1-ubuntu-x64-portable.tar.gz` | Ubuntu 64 位便携版；从仓库 Ubuntu 构建工作流生成，解压后运行 `bash scripts/install_ubuntu_portable.sh` 一键创建应用菜单入口 |
 
 Ubuntu 源码包需要 Python 3.10+、pip 和安装依赖时的网络连接。Windows 本机不能构建 Linux 二进制；远程工作流在 Ubuntu 环境独立生成便携包。
 

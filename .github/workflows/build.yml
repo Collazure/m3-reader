@@ -19,7 +19,7 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = 'offscreen'
-          python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+          python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
       - name: Build and package
         shell: pwsh
         run: |
@@ -42,17 +42,21 @@ jobs:
       - name: Install Qt runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-xinerama0
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 libxcb-image0
       - name: Install dependencies
         run: python -m pip install -e ".[all]" pyinstaller pytest
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
+        run: python -m pytest -q tests/test_activity_timeline.py tests/test_search_scope.py tests/test_story_layout.py tests/test_markdown.py tests/test_reading.py::test_directory_prefers_module_index tests/test_reading.py::test_reading_position_follows_text_after_refresh tests/test_reading.py::test_corrupt_reading_state_falls_back_safely tests/test_gui_layout.py::test_menus_command_bar_and_icon tests/test_gui_layout.py::test_markdown_render_source_and_font_command tests/test_gui_layout.py::test_search_results_in_reader_tab_with_two_line_entries tests/test_gui_layout.py::test_search_hit_opens_source_without_eager_markdown_or_pdf tests/test_gui_layout.py::test_search_tab_tags_and_independent_font_commands tests/test_gui_layout.py::test_command_argument_prompt_and_vim_colon tests/test_gui_layout.py::test_read_only_vim_moves_without_editing tests/test_gui_layout.py::test_command_line_completion_and_history tests/test_tui.py::test_command_completion tests/test_tui.py::test_find_returns_to_source_and_reuses_next_match tests/test_tui.py::test_tab_completes_unique_command_immediately tests/test_tui.py::test_update_streams_output_and_reports tests/test_tui.py::test_update_can_be_cancelled
       - name: Build and package
         run: |
           bash scripts/build_ubuntu.sh
           python scripts/package_installpacks.py --platform ubuntu
+          bin/ubuntu/m3-reader --version
+          status=0
+          QT_QPA_PLATFORM=offscreen timeout 5s bin/ubuntu/m3-reader-gui || status=$?
+          test "$status" -eq 124
       - uses: actions/upload-artifact@v4
         with:
           name: m3-reader-ubuntu
