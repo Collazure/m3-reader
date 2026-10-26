@@ -18,7 +18,7 @@ def _project_dir() -> Path:
 
 
 def main() -> int:
-    from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
     default = _project_dir() / "resources"
@@ -26,39 +26,20 @@ def main() -> int:
     configured = configured_root()
     selected = Path(override).expanduser().resolve() if override else configured
     first_run = selected is None
-    if selected is None:
-        choice = QMessageBox.question(
-            None, "首次使用 · resources 目录",
-            f"资料默认保存在：\n{default}\n\n是否选择其他 resources 目录？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.No)
-        if choice == QMessageBox.StandardButton.Cancel:
-            return 0
-        if choice == QMessageBox.StandardButton.Yes:
-            name = QFileDialog.getExistingDirectory(None, "选择 resources 目录", str(default.parent))
-            if not name:
-                return 0
-            selected = Path(name)
-        else:
-            selected = default
-    while True:
-        try:
-            if not selected.exists() and not first_run:
-                raise ValueError(f"已配置的 resources 目录不存在：{selected}")
-            count = initialize_resources(selected)
-            if not override:
-                save_resources(selected)
-            if first_run and count:
-                QMessageBox.information(None, "已有资源", f"检测到 {count} 个现有文件，将继续使用并保留它们。")
-            break
-        except (OSError, ValueError) as exc:
-            QMessageBox.warning(None, "resources 目录无效", str(exc))
-            name = QFileDialog.getExistingDirectory(None, "重新选择 resources 目录", str(default.parent))
-            if not name:
-                return 1
-            selected = Path(name)
-            override = None
-            first_run = True
+    if first_run:
+        # A modal dialog without an owning window can crash some Qt/Windows
+        # desktops before the reader has had a chance to show itself.
+        # The library can still be changed from 导入 → resources 目录.
+        selected = default
+    try:
+        if not selected.exists() and not first_run:
+            raise ValueError(f"已配置的 resources 目录不存在：{selected}")
+        initialize_resources(selected)
+        if not override and not first_run:
+            save_resources(selected)
+    except (OSError, ValueError) as exc:
+        print(f"resources 目录无效：{exc}", file=sys.stderr)
+        return 1
     from .gui import main as gui_main
     return gui_main(app=app)
 

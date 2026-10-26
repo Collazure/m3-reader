@@ -183,11 +183,31 @@ def build_cli() -> click.Group:
     def gui_cmd() -> None:
         """打开图形资料终端（需要 PySide6）。"""
         if getattr(sys, "frozen", False):
+            import os
             import subprocess
+            import tempfile
+            import time
             gui_executable = Path(sys.executable).with_name("m3-reader-gui.exe" if sys.platform == "win32" else "m3-reader-gui")
             if not gui_executable.is_file():
                 raise click.ClickException(f"找不到图形程序：{gui_executable}")
-            subprocess.Popen([str(gui_executable)], cwd=str(gui_executable.parent))
+            descriptor, marker_name = tempfile.mkstemp(prefix="m3-reader-ready-", suffix=".flag")
+            os.close(descriptor)
+            marker = Path(marker_name)
+            marker.unlink()
+            environment = dict(os.environ)
+            environment["M3_READER_READY_FILE"] = str(marker)
+            try:
+                process = subprocess.Popen([str(gui_executable)], cwd=str(gui_executable.parent), env=environment)
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if marker.is_file():
+                        return
+                    if process.poll() is not None:
+                        raise click.ClickException(f"GUI 启动失败（退出码 {process.returncode}）。请直接运行 {gui_executable} 检查错误。")
+                    time.sleep(0.1)
+                raise click.ClickException("GUI 未在 30 秒内就绪；请检查图形环境和 resources 目录。")
+            finally:
+                marker.unlink(missing_ok=True)
         else:
             import subprocess
             source_root = Path(__file__).resolve().parent.parent

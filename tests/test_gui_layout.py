@@ -21,7 +21,7 @@ from prts_tool.paths import RESOURCES_DIR
 from prts_tool import reading
 
 
-def test_first_launch_initializes_selected_default_resources(app, tmp_path, monkeypatch):
+def test_first_launch_initializes_default_resources_without_modal(app, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     from prts_tool import gui, gui_bootstrap
     from prts_tool.resource_settings import configured_root
@@ -29,10 +29,10 @@ def test_first_launch_initializes_selected_default_resources(app, tmp_path, monk
     monkeypatch.setenv("M3_READER_HOME", str(tmp_path))
     monkeypatch.setenv("M3_READER_SETTINGS", str(tmp_path / "settings.json"))
     monkeypatch.delenv("M3_READER_RESOURCES", raising=False)
-    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: pytest.fail("startup must not open a modal dialog"))
     monkeypatch.setattr(gui, "main", lambda app=None: 0)
     assert gui_bootstrap.main() == 0
-    assert configured_root() == tmp_path / "resources"
+    assert configured_root() is None
     assert (tmp_path / "resources/collected/prts_text").is_dir()
 
 

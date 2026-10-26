@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-源码版本：2.10.1。首次启动 GUI 时可选择已有或新的 `resources` 目录；不选择时源码和便携版默认使用程序目录内的 `resources/`，`.deb` 版默认使用当前用户的 `~/.local/share/m3-reader/resources/`。`.deb` 可用 `M3_READER_HOME` 指定用户数据根。
+源码版本：2.10.2。首次启动 GUI 时自动使用默认 `resources` 目录；源码和便携版默认位于程序目录内，`.deb` 版默认位于当前用户的 `~/.local/share/m3-reader/resources/`。自定义目录可在安装向导或 GUI「导入 → resources 目录」设置。`.deb` 可用 `M3_READER_HOME` 指定用户数据根。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
