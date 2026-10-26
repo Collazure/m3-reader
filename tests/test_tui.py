@@ -211,21 +211,21 @@ def test_result_list_is_two_lines_and_enter_opens(tui):
     assert "已打开" in tui._status_text
 
 
-def test_find_lists_matches_with_line_numbers(tui):
+def test_find_returns_to_source_and_reuses_next_match(tui):
     path = RESOURCES_DIR / "README.md"
-    tui.selected = path
-    term = path.read_text(encoding="utf-8").splitlines()[0][:2] or "资源"
+    tui._open(path)
+    term = path.read_text(encoding="utf-8").splitlines()[0].lstrip("# ")[:2] or "资源"
     tui._find(term)
-    assert tui.results_mode
-    assert tui.results
+    assert not tui.results_mode
+    assert tui.viewing_resource
     assert tui.last_find == term
-    assert all(item["line"] >= 1 for item in tui.results)
+    assert tui._focus_name() == "阅读"
 
 
 def test_reader_has_line_numbers_and_vim_bindings(tui):
     assert tui.reader.window.left_margins      # NumberedMargin
     keys = tui.reader.control.key_bindings
-    for key in ("h", "j", "k", "l", "0", "$", "w", "b", "G", ":", "n", "N"):
+    for key in ("h", "j", "k", "l", "0", "$", "w", "b", "G", ":", "n", "N", ","):
         assert keys.get_bindings_for_keys((key,))
     assert keys.get_bindings_for_keys(("g", "g"))
 

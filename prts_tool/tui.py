@@ -14,10 +14,12 @@ from pathlib import Path
 
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments
-from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, SEARCH_SCOPES, TEXT_SUFFIXES, append_opinion,
+from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, SEARCH_SCOPES, TEXT_SUFFIXES, append_opinion, display_part, display_resource_id,
                       directory_index, parse_search_request, read_opinions, relative_id, resource_files, resource_path, search_text,
                       source_kind)
-from .paths import BOOK_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
+from .markdown import render_terminal_markdown
+from .paths import BOOK_TEXT_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
+from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
 
 try:
@@ -57,6 +59,7 @@ COMMANDS = {
     "find": "当前文件查找",
     "search": "全库搜索",
     "font": "查看终端字号设置说明",
+    "markdown": "切换 Markdown 源码与终端排版",
     "go": "打开搜索结果",
     "jump": "跳到当前文本行号",
     "update": "更新采集内容",
@@ -104,15 +107,16 @@ HELP = """M3 Reader 终端阅读器
   w / b          下一个 / 上一个词    gg / G     文件开头 / 结尾
   3G             跳到第 3 行          5j / 2k    移动 5 行 / 2 行
   Ctrl+D / Ctrl+U  半页下 / 上        Ctrl+B     上翻一页
-  n / N          下一个 / 上一个匹配  `:`        回到命令栏
+  n / N / ,      下一个 / 上一个匹配  `:`        回到命令栏
   / 查找、? 帮助、空格下翻、Ctrl+O 返回上一个页面。
   阅读区左侧显示绝对行号。
 
 命令栏（Tab 补全，Enter 执行）
-  find [词语]                当前文件查找；省略词语时提示 “find:”
+  find [词语]                当前文件直接定位；省略词语时提示 “find:”
   search [词语]              全库搜索；可用 search --scope local 词语 限定范围
                              范围：all / collected / local / ocr
-  font size [字号]           终端字号由终端程序设置；GUI 可直接使用此命令
+  font size/reader/menu N    终端字号由终端程序设置；GUI 可直接设置阅读/任务栏字号
+  markdown source/render    Markdown 源码 / 终端排版预览（保留行号）
   jump [行号]                跳到当前文本的指定行
   go [序号]                  打开上一次搜索的结果
   update [模块] [模式] [--dry-run]
@@ -134,8 +138,9 @@ HELP = """M3 Reader 终端阅读器
   help / quit                帮助 / 退出
 
 搜索与查找
-  结果每条占两行：第一行是文档路径与行号，第二行是匹配内容。
+  全库搜索结果每条占两行：第一行是文档路径与行号，第二行是匹配内容。
   ↑/↓ 选择条目，Enter 直接打开对应文档并跳到该行；输入字符或按 `:` 回到命令栏。
+  find 与 / 在当前文件直接定位；n/N/, 可继续查找。
   单参数命令省略参数时会进入 “命令:” 提示，输入后回车执行；直接回车退出：
   find / search / jump / go / run / diff / page / note / note+ / import / replace。
 
@@ -283,6 +288,10 @@ class CommandCompleter(Completer):
                        else [(str(size), "GUI 字号") for size in (12, 14, 16, 18, 20)])
             yield from self._options(prefix, options)
             return
+        if command == "markdown":
+            yield from self._options(rest.strip().casefold(),
+                                     [("source", "源码"), ("render", "终端排版")])
+            return
         if command == "search":
             args = rest.split()
             if rest.startswith("--scope"):
@@ -308,6 +317,7 @@ class CommandCompleter(Completer):
 
 class TerminalLibrary:
     def __init__(self, *, input=None, output=None):
+        migrate_story_layout(DEFAULT_TEXT_DIR / "avg")
         self.tree = TextArea(read_only=True, scrollbar=True, wrap_lines=False)
         self.reader = TextArea(read_only=True, scrollbar=True, wrap_lines=True, line_numbers=True)
         self._status_text = "就绪 · 直接输入命令 · Alt+1/2/3 切换焦点 · help 查看"
@@ -363,6 +373,8 @@ class TerminalLibrary:
         self.note_draft: list[str] = []
         self.current_pdf_page: int | None = None
         self.viewing_resource = False
+        self.markdown_formatted = True
+        self._source_text = ""
         self.update_task = None
         self.update_active = False
         self.update_cancelled = False
@@ -602,6 +614,7 @@ class TerminalLibrary:
             self._set_status("命令 · Enter 执行 · Alt+2 返回阅读", "status.info")
 
         @keys.add("n")
+        @keys.add(",")
         def _(event):
             self._vim_find_next(False)
 
@@ -633,7 +646,7 @@ class TerminalLibrary:
         return "目录"
 
     def _heading_fragments(self):
-        return [("", "  M3 READER  /  资料终端     COLLECTED · OCR · LOCAL"),
+        return [("", "  M3 READER  /  资料终端     下载 · OCR · 本地"),
                 ("class:focus", f"  [{self._focus_name()}]")]
 
     def _set_status(self, text: str, level: str = "status.info") -> None:
@@ -667,6 +680,7 @@ class TerminalLibrary:
             "selected": self.selected,
             "current_pdf_page": self.current_pdf_page,
             "viewing_resource": self.viewing_resource,
+            "source_text": self._source_text,
             "results": self.results,
             "result_rows": self.result_rows,
             "results_mode": self.results_mode,
@@ -693,6 +707,7 @@ class TerminalLibrary:
         self.selected = view["selected"]
         self.current_pdf_page = view["current_pdf_page"]
         self.viewing_resource = view["viewing_resource"]
+        self._source_text = view.get("source_text", "")
         self.results = view["results"]
         self.result_rows = view["result_rows"]
         self.results_mode = view["results_mode"]
@@ -897,7 +912,7 @@ class TerminalLibrary:
                 parts = prefix + (name,)
                 is_file = parts in self.file_nodes
                 marker = "·" if is_file else "▾" if parts in self.expanded else "▸"
-                lines.append("  " * level + marker + " " + name)
+                lines.append("  " * level + marker + " " + display_part(name))
                 rows.append(parts)
                 if not is_file and parts in self.expanded:
                     visit(parts, level + 1)
@@ -926,7 +941,10 @@ class TerminalLibrary:
         saved_line, saved_page = position_for(path) if line is None or path.suffix.lower() in PDF_SUFFIXES else (1, None)
         line = line or saved_line
         if path.suffix.lower() in TEXT_SUFFIXES:
-            self.reader.text = path.read_text(encoding="utf-8", errors="replace")
+            self._source_text = path.read_text(encoding="utf-8", errors="replace")
+            self.reader.text = (render_terminal_markdown(self._source_text)
+                                if path.suffix.lower() == ".md" and self.markdown_formatted
+                                else self._source_text)
             total = self.reader.buffer.document.line_count
             line = max(1, min(line, total))
             self._jump_buffer(self.reader, line)
@@ -1047,9 +1065,11 @@ class TerminalLibrary:
                 parse_search_request(rest)
                 self.app.create_background_task(self._search(rest))
             elif command == "font":
-                if not re.fullmatch(r"size\s+\d+(?:\.\d+)?", rest):
-                    raise ValueError("用法：font size 16")
-                self._set_status("TUI 字号由终端程序控制；请在终端设置中更改字体大小", "status.info")
+                if not re.fullmatch(r"(?:size|reader|menu)\s+\d+(?:\.\d+)?", rest):
+                    raise ValueError("用法：font size 16、font reader 16 或 font menu 14")
+                self._set_status("TUI 阅读区与菜单字号均由终端程序控制；请在终端设置中更改", "status.info")
+            elif command == "markdown":
+                self._markdown(rest)
             elif command == "go":
                 self._go(rest)
             elif command in {"update", "preview", "images"}:
@@ -1090,36 +1110,15 @@ class TerminalLibrary:
     def _find(self, term: str):
         if not term:
             raise ValueError("请输入搜索词")
-        self.last_find = term
         path = self.selected
-        if not path or path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
+        if not self.viewing_resource or not path or path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
             raise ValueError("请先打开一个文本文件再使用 find")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        resource_id = relative_id(path)
-        items: list[dict] = []
-        limit = 500
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if term.casefold() not in line.casefold():
-                continue
-            content = line.strip()
-            if len(content) > 220:
-                content = content[:219] + "…"
-            items.append({
-                "head": f"{line_no:>6}. {resource_id}:{line_no}",
-                "body": f"        {content}",
-                "resource_id": resource_id,
-                "line": line_no,
-                "page": None,
-            })
-            if len(items) >= limit:
-                break
-        if not items:
+        if term.casefold() not in self.reader.text.casefold():
             self._set_status(f"文件内没有匹配：{term}", "status.warn")
             return
-        suffix = "（达到上限）" if len(items) >= limit else ""
-        self._show_result_list(
-            f"文件内搜索：{term} · {len(items)} 处{suffix} · ↑↓ 选择 · Enter 跳转 · 输入字符返回命令",
-            items)
+        self.last_find = term
+        self._vim_find_next(False)
+        self.app.layout.focus(self.reader)
 
     def _jump(self, rest: str):
         if not self.reader.text.strip():
@@ -1145,7 +1144,7 @@ class TerminalLibrary:
         self.search_hits = hits
         items = []
         for index, hit in enumerate(hits, 1):
-            head = f"{index:>4}. {'[文件名] ' if hit.kind == 'title' else ''}{hit.resource_id}:{hit.line}"
+            head = f"{index:>4}. {'[文件名] ' if hit.kind == 'title' else ''}{display_resource_id(hit.resource_id)}:{hit.line}"
             if hit.page:
                 head += f" · PDF 第 {hit.page} 页"
             items.append({
@@ -1215,9 +1214,11 @@ class TerminalLibrary:
             return
         try:
             if self.selected.suffix.lower() in TEXT_SUFFIXES:
+                row = self.reader.buffer.document.cursor_position_row
+                source_lines = self._source_text.splitlines()
                 save_position(self.selected,
-                              line=self.reader.buffer.document.cursor_position_row + 1,
-                              quote=self.reader.buffer.document.current_line)
+                              line=row + 1,
+                              quote=source_lines[row] if row < len(source_lines) else "")
             elif self.selected.suffix.lower() in PDF_SUFFIXES:
                 save_position(self.selected, page=self.current_pdf_page or 1)
             else:
@@ -1225,6 +1226,18 @@ class TerminalLibrary:
             self._last_reading_save = time.monotonic()
         except (OSError, ValueError):
             pass
+
+    def _markdown(self, rest: str) -> None:
+        mode = rest.casefold() or ("source" if self.markdown_formatted else "render")
+        if mode not in {"source", "render"}:
+            raise ValueError("用法：markdown source 或 markdown render")
+        self.markdown_formatted = mode == "render"
+        if self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md":
+            line = self.reader.buffer.document.cursor_position_row + 1
+            self.reader.text = (render_terminal_markdown(self._source_text)
+                                if self.markdown_formatted else self._source_text)
+            self._jump_buffer(self.reader, line)
+        self._set_status(f"Markdown：{'终端排版' if self.markdown_formatted else '源码'}", "status.ok")
 
     def _open_selected_result(self) -> None:
         if not self.results_mode or not self.results:

@@ -1,7 +1,7 @@
 # M3 Reader · PRTS 文本采集与阅读
 
 把 [PRTS 明日方舟中文 Wiki](https://prts.wiki) 的各类文本 / 图片抓成便于阅读的本地副本，
-纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.8.0。
+纯标准库 + click 作为采集核心，可反复增量刷新。当前版本：2.9.0。
 
 资源已迁入 [resources/](resources/README.md)。其他设备安装包位于 [installpacks/](installpacks/README.md)。GUI / TUI 的安装与使用见 [资料终端说明](docs/APP_README.md)；需求记录见 [需求记录](docs/REQUIREMENTS.md)，
 调研事实及待验证事项见 [已知信息](docs/KNOWN_INFO.md)，
@@ -587,6 +587,9 @@ CLI 会自动发现；同时在本 README 的模块表、输出树和 `CHANGELOG
 ### 8.3 版本日志
 
 完整记录见 [`CHANGELOG.md`](CHANGELOG.md)。最近更新：
+
+* **2.9.0（2026-10-26）**：主线章节补零，特殊活动统一目录并迁移已有资料；
+  GUI 检索改为标签页和右侧标签筛选，任务栏与阅读字号分别设置；`find` 返回原文。
 
 * **2.8.0（2026-10-26）**：Markdown 默认格式化阅读并可切换源码；检索增加来源范围、
   文件名优先与按文件归组；菜单重排和 GUI `font size` 命令。

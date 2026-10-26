@@ -67,6 +67,11 @@ def relative_id(path: Path) -> str:
 def resource_path(resource_id: str) -> Path:
     path = (RESOURCES_DIR / resource_id).resolve()
     relative_id(path)
+    if not path.exists() and resource_id.startswith("collected/prts_text/avg/"):
+        from .story_layout import story_relative_path
+        prefix = "collected/prts_text/avg/"
+        path = (RESOURCES_DIR / prefix / story_relative_path(resource_id[len(prefix):])).resolve()
+        relative_id(path)
     return path
 
 
@@ -92,6 +97,52 @@ class SearchHit:
 
 SEARCH_SCOPES = {"all", "collected", "local", "ocr"}
 
+# Tags describe the resource tree. A child tag also satisfies its parent tag.
+SEARCH_TAGS = ("下载", "本地", "当前目录", "泰拉年表", "主线", "支线", "故事集",
+               "联动", "特殊", "肉鸽", "家具", "生息演算", "泰拉记事")
+DISPLAY_PARTS = {"collected": "下载", "local": "本地", "ocr": "OCR 识别",
+                 "prts_text": "PRTS 文本", "avg": "剧情", "activity": "活动资料",
+                 "operator": "干员", "enemies": "敌人", "furniture": "家具",
+                 "reclamation": "生息演算", "roguelike": "肉鸽", "terra": "泰拉记事",
+                 "terra_text": "泰拉记事 OCR"}
+
+
+def display_part(part: str) -> str:
+    """Chinese label for internal collector directory names."""
+    return DISPLAY_PARTS.get(part, part)
+
+
+def display_resource_id(resource_id: str) -> str:
+    return "/".join(display_part(part) for part in resource_id.split("/"))
+
+
+def resource_tags(resource_id: str, *, current_directory: str | None = None) -> set[str]:
+    parts = resource_id.split("/")
+    tags: set[str] = set()
+    if parts[0] == "collected":
+        tags.add("下载")
+    elif parts[0] in {"local", "ocr"}:
+        tags.add("本地")
+    if current_directory and resource_id.startswith(current_directory.rstrip("/") + "/"):
+        tags.add("当前目录")
+    if "泰拉年表" in Path(resource_id).stem:
+        tags.add("泰拉年表")
+    if "terra" in parts or "terra_text" in parts:
+        tags.add("泰拉记事")
+    if "roguelike" in parts:
+        tags.add("肉鸽")
+    if "furniture" in parts:
+        tags.add("家具")
+    if "reclamation" in parts:
+        tags.add("生息演算")
+    if "avg" in parts:
+        for bucket in ("主线", "支线", "故事集", "联动", "特殊"):
+            if bucket in parts or (bucket == "特殊" and any(p.startswith("特殊 ") for p in parts)):
+                tags.add(bucket)
+        if "四月辑录" in parts:
+            tags.add("特殊")
+    return tags
+
 
 def parse_search_request(text: str) -> tuple[str, str]:
     """Parse `--scope local words` while leaving ordinary searches untouched."""
@@ -104,6 +155,8 @@ def parse_search_request(text: str) -> tuple[str, str]:
 
 
 def search_text(query: str, *, limit: int = 500, scope: str = "all",
+                include_tags: set[str] | None = None, exclude_tags: set[str] | None = None,
+                current_directory: str | None = None,
                 files: Iterator[Path] | None = None) -> list[SearchHit]:
     term = query.strip().casefold()
     if not term or limit < 1:
@@ -120,6 +173,11 @@ def search_text(query: str, *, limit: int = 500, scope: str = "all",
         if scope == "local" and not resource_id.startswith("local/"):
             continue
         if scope == "ocr" and source_kind(path) != "OCR 派生资料":
+            continue
+        tags = resource_tags(resource_id, current_directory=current_directory)
+        if include_tags and not include_tags <= tags:
+            continue
+        if exclude_tags and exclude_tags & tags:
             continue
         candidates.append((path, resource_id))
     title_hits = [SearchHit(resource_id, 1, f"文件名：{path.name}", kind="title")

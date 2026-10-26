@@ -64,9 +64,11 @@ def test_menus_command_bar_and_icon(app):
         labels = [action.text() for action in window.menuBar().actions()]
         assert labels == ["导入", "阅读", "检索", "工具", "视图", "帮助"]
         assert [action.text() for action in window.import_menu.actions() if action.menu()] == ["在线采集", "本地资料"]
+        assert any(action.text().startswith("更新资料") for action in window.online_menu.actions())
+        assert any(action.text().startswith("导入新资料") for action in window.local_menu.actions())
         assert any(action.text() == "更新意见" for action in window.help_menu.actions())
         assert any(action.text() == "命令栏" for action in window.tools_menu.actions())
-        assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示", "阅读字号"]
+        assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示", "阅读字号", "任务栏字号"]
         assert window.menuBar().cornerWidget() is not None
         assert not window.windowIcon().isNull()
         assert window.command_dock.isHidden()
@@ -97,21 +99,70 @@ def test_command_line_completion_and_history(app):
     assert line.text() == ""
 
 
-def test_search_results_group_by_file(app):
+def test_search_results_in_reader_tab_with_two_line_entries(app):
     window = MainWindow()
     try:
         window.show_hits([SearchHit("local/a.md", 1, "文件名：a.md", kind="title"),
                           SearchHit("local/a.md", 5, "正文命中"),
                           SearchHit("collected/b.txt", 2, "另一条命中")])
-        assert window.search_results.topLevelItemCount() == 2
-        assert window.search_results.topLevelItem(0).childCount() == 2
-        assert window.search_results.topLevelItem(0).child(0).text(0).startswith("[文件名]")
+        assert window.search_results.topLevelItemCount() == 3
+        assert window.search_results.topLevelItem(0).childCount() == 1
+        assert window.search_results.topLevelItem(0).child(0).text(0).strip().startswith("[文件名]")
         assert "2 个文件" in window.search_summary.text()
+        assert window.search_results.topLevelItem(0).text(0).endswith("本地/a.md:1")
+        assert window.tabs.indexOf(window.search_panel) < 0  # the tab opens when a search starts
         calls = []
         window.global_search = lambda: calls.append((window.global_input.text(), window.search_scope.currentData()))
         window.command_input.setText("search --scope local 泰拉 年表")
         window.execute_gui_command()
         assert calls == [("泰拉 年表", "local")]
+    finally:
+        window.close()
+
+
+def test_search_tab_tags_and_independent_font_commands(app):
+    window = MainWindow()
+    try:
+        window.global_input.setText("故事")
+        window.global_search()
+        assert window.tabs.currentWidget() is window.search_panel
+        window.search_worker.wait(30000)
+        yes, no = window.tag_buttons["特殊"]
+        yes.setChecked(True)
+        assert yes.isChecked() and not no.isChecked()
+        no.setChecked(True)
+        assert no.isChecked() and not yes.isChecked()
+        window.command_input.setText("font menu 16")
+        window.execute_gui_command()
+        assert window.menu_font_size == 16
+        assert window.reader_font_size == 14
+        assert window.online_menu.font().pointSizeF() == 16
+        assert [action.text() for action in window.menuBar().actions()][:2] == ["导入", "阅读"]
+        window.command_input.setText("font size 18")
+        window.execute_gui_command()
+        assert window.reader_font_size == 18
+    finally:
+        if window.search_worker and window.search_worker.isRunning():
+            window.search_worker.wait(30000)
+        window.close()
+
+
+def test_command_argument_prompt_and_vim_colon(app):
+    window = MainWindow()
+    try:
+        window.command_input.setText("find")
+        window.execute_gui_command()
+        assert window.pending_command == "find"
+        assert window.command_label.text() == "find:"
+        window.command_input.setText("a b c")
+        window.execute_gui_command()
+        assert window.pending_command is None
+        assert window.find_input.text() == "a b c"
+        window.command_input.setText("search")
+        window.execute_gui_command()
+        window.command_input.clear()
+        window.execute_gui_command()
+        assert window.pending_command is None
     finally:
         window.close()
 
@@ -185,11 +236,11 @@ def test_directory_index_and_optional_command_bar(app, tmp_path, monkeypatch):
     window = MainWindow()
     try:
         collected = next(window.tree.topLevelItem(i) for i in range(window.tree.topLevelItemCount())
-                         if window.tree.topLevelItem(i).text(0) == "collected")
+                         if window.tree.topLevelItem(i).text(0) == "下载")
         text_root = next(collected.child(i) for i in range(collected.childCount())
-                         if collected.child(i).text(0) == "prts_text")
+                         if collected.child(i).text(0) == "PRTS 文本")
         avg = next(text_root.child(i) for i in range(text_root.childCount())
-                   if text_root.child(i).text(0) == "avg")
+                   if text_root.child(i).text(0) == "剧情")
         window.click_tree_item(avg, 0)
         assert window.current_path == RESOURCES_DIR / "collected" / "prts_text" / "avg" / "_索引.md"
         window.command_action.trigger()

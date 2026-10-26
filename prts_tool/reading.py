@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .library import TEXT_SUFFIXES, relative_id, resource_path
 from .paths import READING_FILE
+from .story_layout import story_relative_path
 
 MAX_POSITIONS = 500
 
@@ -23,8 +24,14 @@ def _load() -> dict:
         return {"version": 1, "last": "", "positions": {}}
     value["positions"] = {key: item for key, item in value["positions"].items()
                           if isinstance(key, str) and isinstance(item, dict)}
+    prefix = "collected/prts_text/avg/"
+    value["positions"] = {(prefix + story_relative_path(key[len(prefix):])
+                           if key.startswith(prefix) else key): item
+                          for key, item in value["positions"].items()}
     if not isinstance(value.get("last"), str):
         value["last"] = ""
+    elif value["last"].startswith(prefix):
+        value["last"] = prefix + story_relative_path(value["last"][len(prefix):])
     return value
 
 

@@ -1,2 +1,2 @@
-6792020d319ab02af8fdb7527962ae610c60db8b2a7a432a0aad6839e4cf51a9  windows/m3-reader-2.8.0-windows-x64-portable.zip
-515fa18fd2388550465d7d26fadac7aa4c0b8041cb5dca39322e5f12cdb990d8  debian/m3-reader-2.8.0-ubuntu-source.tar.gz
+76da015cde8f157091305107679c69759fe3899fc64868dc4690ac44f4b400a2  windows/m3-reader-2.9.0-windows-x64-portable.zip
+71e952c9bcfe187104e446f6e710b3f496122a9124360d6e16f74369ae210dee  debian/m3-reader-2.9.0-ubuntu-source.tar.gz

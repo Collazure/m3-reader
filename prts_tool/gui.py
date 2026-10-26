@@ -11,9 +11,10 @@ from . import __version__
 from .history import diff_rows, import_local, list_runs, load_run
 from .jobs import update_arguments, update_command_sequence
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, parse_search_request, read_opinions,
-                      relative_id, resource_files, resource_path, search_text,
+                      SEARCH_TAGS, display_part, display_resource_id, relative_id, resource_files, resource_path, search_text,
                       source_kind, write_opinions)
-from .paths import APP_ICON_FILE, BOOK_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
+from .paths import APP_ICON_FILE, BOOK_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
+from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
 
 try:
@@ -22,7 +23,7 @@ try:
     from PySide6.QtPdf import QPdfDocument
     from PySide6.QtPdfWidgets import QPdfView
     from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QHBoxLayout,
-                                   QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+                                   QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
                                    QTabWidget, QTextBrowser, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
@@ -54,19 +55,25 @@ QScrollBar::handle { background: #4f695b; }
 class SearchThread(QThread):
     ready = Signal(list)
 
-    def __init__(self, query: str, scope: str = "all"):
+    def __init__(self, query: str, scope: str = "all", include_tags=None, exclude_tags=None,
+                 current_directory=None):
         super().__init__()
         self.query = query
         self.scope = scope
+        self.include_tags = include_tags or set()
+        self.exclude_tags = exclude_tags or set()
+        self.current_directory = current_directory
 
     def run(self):
-        self.ready.emit(search_text(self.query, limit=1000, scope=self.scope))
+        self.ready.emit(search_text(self.query, limit=1000, scope=self.scope,
+                                    include_tags=self.include_tags, exclude_tags=self.exclude_tags,
+                                    current_directory=self.current_directory))
 
 
 class CommandLine(QLineEdit):
     """Optional GUI command input with terminal-like history and Tab completion."""
 
-    COMMANDS = ("find", "search", "jump", "font", "update", "preview", "images", "history",
+    COMMANDS = ("find", "search", "jump", "font", "markdown", "update", "preview", "images", "history",
                 "diff", "notes", "note", "save", "page", "open", "import", "replace",
                 "resume", "next", "prev", "back", "help", "quit")
 
@@ -283,7 +290,7 @@ class TextReader(QPlainTextEdit):
             self.jump(int(self._vim_count) if self._vim_count else self.blockCount())
         elif char in {"/", ":"}:
             self.vim_prompt.emit(char)
-        elif char in {"n", "N"}:
+        elif char in {"n", "N", ","}:
             self.vim_find.emit(char == "N")
         self._vim_count = ""
         event.accept()
@@ -366,7 +373,7 @@ class MarkdownBrowser(QTextBrowser):
                 self.moveCursor(QTextCursor.MoveOperation.End)
         elif char in {"/", ":"}:
             self.owner.vim_prompt.emit(char)
-        elif char in {"n", "N"}:
+        elif char in {"n", "N", ","}:
             self.owner.vim_find.emit(char == "N")
         else:
             super().keyPressEvent(event)
@@ -516,6 +523,7 @@ class PdfReader(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        migrate_story_layout(DEFAULT_TEXT_DIR / "avg")
         self.setWindowTitle("M3 Reader // 资料终端")
         self.setWindowIcon(QIcon(str(APP_ICON_FILE)))
         self.resize(1500, 920)
@@ -534,6 +542,7 @@ class MainWindow(QMainWindow):
         self.wrap_enabled = True
         self.markdown_formatted = True
         self.reader_font_size = 14
+        self.menu_font_size = 13
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["资源目录"])
         self.tree.setExpandsOnDoubleClick(False)
@@ -577,8 +586,10 @@ class MainWindow(QMainWindow):
         self.reading_menu.addAction("返回上一个文件", self.go_back)
         self.reading_menu.addAction("上一文件", lambda: self.adjacent_file(-1))
         self.reading_menu.addAction("下一文件", lambda: self.adjacent_file(1))
-        online_menu = self.import_menu.addMenu("在线采集")
-        local_menu = self.import_menu.addMenu("本地资料")
+        online_menu = self.online_menu = QMenu("在线采集", self.import_menu)
+        local_menu = self.local_menu = QMenu("本地资料", self.import_menu)
+        self.import_menu.addMenu(online_menu)
+        self.import_menu.addMenu(local_menu)
         controls = QWidget()
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(8, 4, 8, 4)
@@ -612,9 +623,14 @@ class MainWindow(QMainWindow):
         self.markdown_action.setShortcut("Ctrl+M")
         self.markdown_action.toggled.connect(self.set_markdown_format)
         self.view_menu.addAction(self.markdown_action)
-        font_menu = self.view_menu.addMenu("阅读字号")
+        font_menu = self.font_menu = QMenu("阅读字号", self.view_menu)
+        self.view_menu.addMenu(font_menu)
         for size in (12, 14, 16, 18, 20, 24):
             font_menu.addAction(f"{size} pt", lambda checked=False, value=size: self.set_font_size(value))
+        menu_font = self.menu_font_menu = QMenu("任务栏字号", self.view_menu)
+        self.view_menu.addMenu(menu_font)
+        for size in (10, 12, 13, 14, 16, 18, 20):
+            menu_font.addAction(f"{size} pt", lambda checked=False, value=size: self.set_menu_font_size(value))
         self.vim_action = QAction("只读 Vim 操作", self)
         self.vim_action.setCheckable(True)
         self.vim_action.setChecked(True)
@@ -659,6 +675,7 @@ class MainWindow(QMainWindow):
         global_button.clicked.connect(self.global_search)
         right_layout.addWidget(global_button)
         right_layout.addWidget(QLabel(f"M3 Reader · v{__version__}"))
+        self.header_controls = right
         self.menuBar().setCornerWidget(right, Qt.Corner.TopRightCorner)
         self.vim_input = QLineEdit(self)
         self.vim_input.setMaximumWidth(350)
@@ -691,12 +708,50 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(6, 4, 6, 4)
         self.search_summary = QLabel("输入关键词检索文件名和正文；双击结果跳转")
         layout.addWidget(self.search_summary)
+        search_split = QSplitter()
         self.search_results = QTreeWidget()
-        self.search_results.setHeaderLabels(["文件 / 命中内容", "位置"])
+        self.search_results.setHeaderLabels(["索引 / 正文", "位置"])
         self.search_results.itemDoubleClicked.connect(self.open_search_hit)
-        layout.addWidget(self.search_results)
-        self.search_dock = self._dock("全库检索 · 按文件归组", panel, Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.search_dock.hide()
+        search_split.addWidget(self.search_results)
+        filters = QWidget()
+        filters_layout = QVBoxLayout(filters)
+        filters_layout.addWidget(QLabel("标签筛选  ·  ＋包含 / －排除"))
+        self.tag_buttons = {}
+        for tag in SEARCH_TAGS:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(2, 1, 2, 1)
+            label = QLabel(tag)
+            label.setStyleSheet("color: #8cd0d3" if tag in {"下载", "本地", "当前目录"} else "color: #cce08c")
+            row_layout.addWidget(label, 1)
+            yes = QPushButton("＋")
+            no = QPushButton("－")
+            for button in (yes, no):
+                button.setCheckable(True)
+                button.setFixedWidth(32)
+                row_layout.addWidget(button)
+            yes.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, True, checked))
+            no.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, False, checked))
+            self.tag_buttons[tag] = (yes, no)
+            filters_layout.addWidget(row)
+        filters_layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(filters)
+        search_split.addWidget(scroll)
+        search_split.setSizes([950, 235])
+        layout.addWidget(search_split)
+        self.search_panel = panel
+        self.search_tab_index = self.tabs.addTab(panel, "检索结果")
+        self.tabs.removeTab(self.search_tab_index)
+
+    def set_search_tag(self, tag: str, positive: bool, checked: bool):
+        yes, no = self.tag_buttons[tag]
+        opposite = no if positive else yes
+        if checked and opposite.isChecked():
+            opposite.setChecked(False)
+        if self.global_input.text().strip() and not (self.search_worker and self.search_worker.isRunning()):
+            self.global_search()
 
     def make_history_dock(self):
         self.history_tree = QTreeWidget()
@@ -766,12 +821,31 @@ class MainWindow(QMainWindow):
                 reader._margin()
         self.statusBar().showMessage(f"阅读字号：{size:g} pt")
 
+    def set_menu_font_size(self, size: float):
+        if not 8 <= size <= 32:
+            raise ValueError("任务栏字号范围为 8–32 pt")
+        self.menu_font_size = size
+        font = self.menuBar().font()
+        font.setPointSizeF(size)
+        self.menuBar().setFont(font)
+        self.header_controls.setFont(font)
+        self.header_controls.setStyleSheet(f"font-size: {size:g}pt")
+        for menu in (self.import_menu, self.reading_menu, self.search_menu,
+                     self.tools_menu, self.view_menu, self.help_menu,
+                     self.online_menu, self.local_menu, self.font_menu, self.menu_font_menu):
+            menu.setFont(font)
+        self.statusBar().showMessage(f"任务栏字号：{size:g} pt")
+
     def set_vim(self, enabled):
         for reader in self.readers.values():
             if isinstance(reader, TextReader):
                 reader.vim_enabled = enabled
 
     def show_vim_prompt(self, prefix: str):
+        if self.command_dock.isVisible():
+            self.command_input.setText(prefix)
+            self.command_input.setFocus()
+            return
         self.vim_input.setText(prefix)
         self.vim_input.show()
         self.vim_input.setFocus()
@@ -792,7 +866,8 @@ class MainWindow(QMainWindow):
             if value.isdecimal() and int(value) > 0:
                 reader.jump(int(value))
             else:
-                self.statusBar().showMessage("Vim 命令支持 :行号 与 /关键词")
+                self.command_input.setText(value)
+                self.execute_gui_command()
         reader.setFocus()
 
     def eventFilter(self, obj, event):
@@ -832,8 +907,10 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         row = QHBoxLayout(panel)
         row.setContentsMargins(8, 4, 8, 4)
-        row.addWidget(QLabel("命令 ›"))
+        self.command_label = QLabel("命令 ›")
+        row.addWidget(self.command_label)
         self.command_input = CommandLine()
+        self.pending_command = None
         self.command_input.setPlaceholderText("find / search / jump / update / history / diff / notes / resume / next / back …  (Tab 补全，↑↓ 历史)")
         self.command_input.returnPressed.connect(self.execute_gui_command)
         row.addWidget(self.command_input)
@@ -850,7 +927,7 @@ class MainWindow(QMainWindow):
     def show_command_help(self):
         QMessageBox.information(self, "阅读快捷键与命令",
             "只读 Vim：h/j/k/l、0/$、w/b、gg/G、数字前缀、Ctrl+D/U/B、/搜索、n/N、:行号。\n\n"
-            "可选命令栏（Ctrl+L）：font size 16、find、search、jump、update、preview、images、history、"
+            "可选命令栏（Ctrl+L）：font size 16、font menu 14、markdown render|source、find、search、jump、update、preview、images、history、"
             "diff 运行序号 变化序号、notes、note、save、page、open、import、replace、"
             "resume、next、prev、back、help、quit。")
 
@@ -864,7 +941,8 @@ class MainWindow(QMainWindow):
             for index, part in enumerate(parts):
                 key = "/".join(parts[:index + 1])
                 if key not in entries:
-                    item = QTreeWidgetItem([part])
+                    item = QTreeWidgetItem([display_part(part)])
+                    item.setData(0, Qt.ItemDataRole.UserRole + 1, part)
                     if parent is None:
                         self.tree.addTopLevelItem(item)
                     else:
@@ -913,7 +991,7 @@ class MainWindow(QMainWindow):
         parts = []
         current = item
         while current is not None:
-            parts.append(current.text(0))
+            parts.append(current.data(0, Qt.ItemDataRole.UserRole + 1) or current.text(0))
             current = current.parent()
         folder = RESOURCES_DIR.joinpath(*reversed(parts))
         if index := directory_index(folder):
@@ -968,6 +1046,14 @@ class MainWindow(QMainWindow):
     def execute_gui_command(self):
         raw = self.command_input.text().strip()
         self.command_input.clear()
+        if self.pending_command:
+            command = self.pending_command
+            self.pending_command = None
+            self.command_label.setText("命令 ›")
+            if not raw:
+                self.statusBar().showMessage(f"已退出 {command} 输入", 5000)
+                return
+            raw = f"{command} {raw}"
         if not raw:
             return
         self.command_input.remember(raw)
@@ -979,13 +1065,19 @@ class MainWindow(QMainWindow):
             raw = raw[1:]
         command, _, rest = raw.partition(" ")
         command, rest = command.casefold(), rest.strip()
+        if not rest and command in {"find", "search", "jump", "page", "note"}:
+            self.pending_command = command
+            self.command_label.setText(f"{command}:")
+            self.command_input.setFocus()
+            return
         try:
             if command == "find":
                 if rest:
                     self.find_input.setText(rest)
                     self.find_next()
-                else:
-                    self.find_input.setFocus()
+                    reader = self.tabs.currentWidget()
+                    if isinstance(reader, TextReader):
+                        reader.setFocus()
             elif command == "search":
                 if rest:
                     query, scope = parse_search_request(rest)
@@ -1001,13 +1093,17 @@ class MainWindow(QMainWindow):
                 reader.jump(int(rest))
             elif command == "font":
                 parts = rest.split()
-                if len(parts) != 2 or parts[0].casefold() != "size":
-                    raise ValueError("用法：font size 16（8–40 pt）")
+                if len(parts) != 2 or parts[0].casefold() not in {"size", "reader", "menu"}:
+                    raise ValueError("用法：font size 16 或 font menu 14")
                 try:
                     size = float(parts[1])
                 except ValueError:
                     raise ValueError("字号必须是数字，例如 font size 16") from None
-                self.set_font_size(size)
+                self.set_menu_font_size(size) if parts[0].casefold() == "menu" else self.set_font_size(size)
+            elif command == "markdown":
+                if rest.casefold() not in {"render", "source"}:
+                    raise ValueError("用法：markdown render 或 markdown source")
+                self.markdown_action.setChecked(rest.casefold() == "render")
             elif command in {"update", "preview", "images"}:
                 self._command_update(command, rest)
             elif command == "history":
@@ -1182,6 +1278,9 @@ class MainWindow(QMainWindow):
     def close_tab(self, index):
         reader = self.tabs.widget(index)
         if reader:
+            if reader is self.search_panel:
+                self.tabs.removeTab(index)
+                return
             self._save_reader_position(reader)
             if hasattr(reader, "path"):
                 self.readers.pop(str(reader.path.resolve()), None)
@@ -1229,31 +1328,34 @@ class MainWindow(QMainWindow):
         term = self.global_input.text().strip()
         if not term or (self.search_worker and self.search_worker.isRunning()):
             return
+        if self.current_path:
+            self.search_context_path = self.current_path
         self.search_results.clear()
         self.search_summary.setText(f"正在检索「{term}」…")
-        self.search_dock.show()
-        self.search_worker = SearchThread(term, self.search_scope.currentData())
+        if self.tabs.indexOf(self.search_panel) < 0:
+            self.tabs.addTab(self.search_panel, "检索结果")
+        self.tabs.setCurrentWidget(self.search_panel)
+        include = {tag for tag, (yes, _) in self.tag_buttons.items() if yes.isChecked()}
+        exclude = {tag for tag, (_, no) in self.tag_buttons.items() if no.isChecked()}
+        current_dir = relative_id(self.search_context_path.parent) if getattr(self, "search_context_path", None) else None
+        self.search_worker = SearchThread(term, self.search_scope.currentData(), include, exclude, current_dir)
         self.search_worker.ready.connect(self.show_hits)
         self.search_worker.start()
 
     def show_hits(self, hits):
         self.search_results.clear()
-        groups: dict[str, QTreeWidgetItem] = {}
-        for hit in hits:
-            root = groups.get(hit.resource_id)
-            if root is None:
-                root = QTreeWidgetItem([hit.resource_id, ""])
-                root.setData(0, Qt.ItemDataRole.UserRole, hit)
-                self.search_results.addTopLevelItem(root)
-                groups[hit.resource_id] = root
-            label = ("[文件名] " if hit.kind == "title" else "") + hit.excerpt
-            item = QTreeWidgetItem([label, f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行"])
-            item.setData(0, Qt.ItemDataRole.UserRole, hit)
-            root.addChild(item)
-        for root in groups.values():
-            root.setText(1, f"{root.childCount()} 条")
-            root.setExpanded(len(groups) <= 8)
-        message = f"{len(groups)} 个文件 · {len(hits)} 条命中"
+        for index, hit in enumerate(hits, 1):
+            location = f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行"
+            head = QTreeWidgetItem([f"{index:>4}. {display_resource_id(hit.resource_id)}:{hit.line}", location])
+            head.setToolTip(0, hit.resource_id)
+            head.setData(0, Qt.ItemDataRole.UserRole, hit)
+            self.search_results.addTopLevelItem(head)
+            body = QTreeWidgetItem([f"      {'[文件名] ' if hit.kind == 'title' else ''}{hit.excerpt}", ""])
+            body.setData(0, Qt.ItemDataRole.UserRole, hit)
+            head.addChild(body)
+            head.setExpanded(True)
+        files = len({hit.resource_id for hit in hits})
+        message = f"{files} 个文件 · {len(hits)} 条命中"
         if len(hits) >= 1000:
             message += " · 达到显示上限，请缩小范围或关键词"
         if not hits:

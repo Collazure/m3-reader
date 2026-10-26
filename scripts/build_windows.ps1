@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$python = if ($env:M3_READER_PYTHON) { $env:M3_READER_PYTHON } else { Join-Path $projectRoot '.venv\Scripts\python.exe' }
 if (-not (Test-Path -LiteralPath $python)) { $python = (Get-Command python -ErrorAction Stop).Source }
 & $python -c 'import PyInstaller, PySide6, prompt_toolkit' 2>$null
 if ($LASTEXITCODE -ne 0) { throw '构建 Python 需要安装 .[all] 与 pyinstaller。' }

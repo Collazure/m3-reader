@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.8.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.9.0 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -44,6 +44,9 @@
 | K35 | Markdown 由 Qt QTextBrowser 格式化显示，源码仍由带行号的只读 TextReader 提供；具体行跳转切换到源码 | prts_tool/gui.py；tests/test_gui_layout.py |
 | K36 | 参考工程建议改进信息层级与检索；2.8.0 采用按文件归组、文件名优先、来源范围和树筛选 | reference/ArkPlots参考价值分析-m3-reader.md、WikiTransporter参考价值分析-m3-reader.md；prts_tool/library.py、gui.py、tui.py |
 | K37 | GUI `font size N` 调整阅读字号；TUI 字号由所在终端控制，prompt_toolkit 无跨终端字体设置接口 | prts_tool/gui.py、tui.py；2026-10-26 |
+| K38 | 资源树以中文显示内部采集模块；AVG 旧目录自动迁移，主线 0–9 章补零，四月辑录和特殊活动归入「特殊」；CLI 模块名仍保持兼容 | prts_tool/library.py、story_layout.py、collectors/avg.py；2026-10-26 |
+| K39 | GUI 全库检索为阅读标签页，右侧标签支持包含与排除；当前目录依阅读位置确定，命中保持原文行号 | prts_tool/gui.py、library.py；2026-10-26 |
+| K40 | GUI 任务栏和阅读字号独立；TUI 无权更改终端字体。`find` 在原文中定位；TUI Markdown 终端预览保留原始行数 | prts_tool/gui.py、tui.py、markdown.py；2026-10-26 |
 
 ## 待实现 / 待验证
 

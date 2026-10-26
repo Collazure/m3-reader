@@ -30,7 +30,7 @@ NAV_PAGE = "Template:剧情导航"
 STORY_CATEGORY = "剧情"
 MODULE_DIR = "avg"
 
-CHAPTER_FOLDER = "第{n}章 {group}"
+CHAPTER_FOLDER = "第{n:02d}章 {group}"
 SIDE_FOLDER = "支线 {group}"
 OTHER_FOLDER = "{category} {group}"
 
@@ -39,7 +39,7 @@ BUCKET_MAIN = "主线"
 BUCKET_SIDE = "支线"
 BUCKET_COLLAB = "联动"
 BUCKET_TALES = "故事集"
-BUCKET_APRIL = "四月辑录"
+BUCKET_APRIL = "特殊"
 BUCKETS = (BUCKET_MAIN, BUCKET_SIDE, BUCKET_COLLAB, BUCKET_TALES, BUCKET_APRIL)
 COLLAB_CATEGORY = "联动活动"      # PRTS 自带分类，用来判定联动剧情（含复刻）
 
@@ -278,14 +278,16 @@ def decide_folder(stype: str, group: str, nav_category: str, chapter_no: int | N
         return FOLDER_OVERRIDES[group]
     if bucket == BUCKET_MAIN:
         return CHAPTER_FOLDER.format(n=chapter_no, group=group) if chapter_no is not None else group
-    if bucket in (BUCKET_SIDE, BUCKET_COLLAB, BUCKET_TALES, BUCKET_APRIL):
+    if bucket == BUCKET_APRIL and nav_category == "四月辑录":
+        return f"四月辑录/{group}"
+    if bucket in (BUCKET_SIDE, BUCKET_COLLAB, BUCKET_TALES):
         return group
     if stype == "主线" and chapter_no is not None:
         return CHAPTER_FOLDER.format(n=chapter_no, group=group)
     if stype in ("支线", "活动"):
         return SIDE_FOLDER.format(group=group)
     category = nav_category if nav_category and nav_category not in GENERIC_GROUPS else "特殊"
-    return OTHER_FOLDER.format(category=category, group=group)
+    return f"特殊/{group}" if category == "特殊" else OTHER_FOLDER.format(category=category, group=group)
 
 
 def decide_bucket(stype: str, nav_type: str, nav_category: str, group: str,
@@ -305,7 +307,7 @@ def decide_bucket(stype: str, nav_type: str, nav_category: str, group: str,
         return BUCKET_MAIN
     if stype in ("支线", "活动"):
         return BUCKET_COLLAB if is_collab(group, collabs) else BUCKET_SIDE
-    if nav_category == BUCKET_APRIL:
+    if nav_category == "四月辑录":
         return BUCKET_APRIL
     if nav_category:                      # 特殊 / 其它大类
         return ""
@@ -397,6 +399,9 @@ class AvgCollector(Collector):
     def run(self, ctx: Context) -> Stat:
         stat = Stat()
         out = ctx.out_dir / MODULE_DIR
+        if out.is_dir():
+            from ..story_layout import migrate_story_layout
+            migrate_story_layout(out)
         manifest = Manifest(out / "_manifest.json")
 
         self._cleanup_memories(ctx, out, manifest)

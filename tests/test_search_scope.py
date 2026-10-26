@@ -25,3 +25,21 @@ def test_search_scopes_and_name_priority(tmp_path, monkeypatch):
 def test_parse_search_request():
     assert library.parse_search_request("--scope local 泰拉 年表") == ("泰拉 年表", "local")
     assert library.parse_search_request("泰拉 年表") == ("泰拉 年表", "all")
+
+
+def test_nested_search_tags_and_exclusion(tmp_path, monkeypatch):
+    root = tmp_path / "resources"
+    main = root / "collected/prts_text/avg/主线/第01章"
+    special = root / "collected/prts_text/avg/特殊/四月辑录"
+    local = root / "local"
+    for folder in (main, special, local):
+        folder.mkdir(parents=True)
+        (folder / "sample.txt").write_text("匹配\n", encoding="utf-8")
+    monkeypatch.setattr(library, "RESOURCES_DIR", root)
+    assert library.resource_tags("collected/prts_text/avg/主线/第01章/sample.txt") >= {"下载", "主线"}
+    assert library.resource_tags("collected/prts_text/avg/特殊/四月辑录/sample.txt") >= {"下载", "特殊"}
+    hits = library.search_text("匹配", include_tags={"下载"}, exclude_tags={"特殊"})
+    assert {hit.resource_id for hit in hits} == {"collected/prts_text/avg/主线/第01章/sample.txt"}
+    hits = library.search_text("匹配", include_tags={"当前目录"},
+                               current_directory="collected/prts_text/avg/特殊")
+    assert {hit.resource_id for hit in hits} == {"collected/prts_text/avg/特殊/四月辑录/sample.txt"}
