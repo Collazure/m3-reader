@@ -47,6 +47,7 @@
 | K38 | 资源树以中文显示内部采集模块；AVG 旧目录自动迁移，主线 0–9 章补零，四月辑录和特殊活动归入「特殊」；CLI 模块名仍保持兼容 | prts_tool/library.py、story_layout.py、collectors/avg.py；2026-10-26 |
 | K39 | GUI 全库检索为阅读标签页，右侧标签支持包含与排除；当前目录依阅读位置确定，命中保持原文行号 | prts_tool/gui.py、library.py；2026-10-26 |
 | K40 | GUI 任务栏和阅读字号独立；TUI 无权更改终端字体。`find` 在原文中定位；TUI Markdown 终端预览保留原始行数 | prts_tool/gui.py、tui.py、markdown.py；2026-10-26 |
+| K41 | GitHub Actions 首次 Ubuntu 任务在导入 PySide6 时缺少 `libEGL.so.1`；工作流已增加 Qt 运行库安装步骤 | .github/workflows/build.yml；2026-10-26 |
 
 ## 待实现 / 待验证
 

@@ -16,6 +16,7 @@
   修复 Qt 子菜单对象被提前释放导致部分菜单无法打开的问题。
 * GUI/TUI 的 `find` 均在原文中定位，`n` / `N` / `,` 继续查找。
   TUI Markdown 提供保留行号的终端排版和源码切换。
+* Ubuntu CI 预装 Qt 的 EGL/OpenGL 运行库，避免缺少 `libEGL.so.1` 时测试无法导入 PySide6。
 
 ## 2.8.0 — 2026-10-26
 
