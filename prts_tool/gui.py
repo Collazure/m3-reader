@@ -27,29 +27,29 @@ from .resource_settings import import_resources, inspect_resources, move_resourc
 
 try:
     from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QProcess, QPropertyAnimation, QSignalBlocker, Qt, QThread, QTimer, QUrl, Signal
-    from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
+    from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
     from PySide6.QtPdf import QPdfDocument
     from PySide6.QtPdfWidgets import QPdfView
     from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDockWidget, QHBoxLayout,
                                    QFileDialog, QGraphicsOpacityEffect, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-                                   QSizePolicy, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QWidgetAction,
+                                   QSizePolicy, QTabBar, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
 except ImportError as exc:  # pragma: no cover - tested with the optional Qt runtime
     raise SystemExit("GUI 需要 PySide6。请运行 python -m pip install PySide6 PySide6-Addons") from exc
 
 
 THEME_COLORS = {
-    "classic": dict(base="#242a30", main="#1e252b", panel="#29343a", text="#b7d8b6",
+    "classic": dict(base="#242a30", main="#1e252b", panel="#29343a", text="#b7d8b6", chrome="#e5f2c7", tab_text="#ccebd9",
                     accent="#d4e99b", accent2="#92d4d7", border="#536b60", hover="#405d4d",
                     selected="#405b4c", button="#304244", muted="#96ac9d", selection="#49617b"),
-    "soft": dict(base="#303b40", main="#29343a", panel="#37474c", text="#d0e5d0",
+    "soft": dict(base="#303b40", main="#29343a", panel="#37474c", text="#d0e5d0", chrome="#f4f5cc", tab_text="#e4f5e5",
                  accent="#e3edae", accent2="#a9e0df", border="#719080", hover="#50725f",
                  selected="#527260", button="#40575a", muted="#b2c5b5", selection="#5b7890"),
-    "ocean": dict(base="#202f3d", main="#1b2936", panel="#2a3c4b", text="#c6dce9",
+    "ocean": dict(base="#202f3d", main="#1b2936", panel="#2a3c4b", text="#c6dce9", chrome="#deefff", tab_text="#c7edfa",
                   accent="#b7d5ef", accent2="#94d7d9", border="#59778b", hover="#385b73",
                   selected="#365a73", button="#2d495e", muted="#9eb6c5", selection="#42677d"),
-    "warm": dict(base="#302c29", main="#292522", panel="#3a332e", text="#e1d5c2",
+    "warm": dict(base="#302c29", main="#292522", panel="#3a332e", text="#e1d5c2", chrome="#fff0c4", tab_text="#f4e3ce",
                  accent="#ead4a1", accent2="#d8c2a2", border="#82715f", hover="#625142",
                  selected="#655241", button="#4c4037", muted="#b9a994", selection="#6d6055"),
 }
@@ -58,6 +58,8 @@ _STYLE_TEMPLATE = Template("""
 QWidget { background: $base; color: $text; font-family: 'Maple Mono NF CN','Noto Sans Mono CJK SC',monospace; }
 QMainWindow, QDockWidget { background: $main; }
 QToolBar, QMenuBar, QStatusBar { background: $panel; border-bottom: 1px solid $border; spacing: 7px; padding: 5px; }
+QMenuBar, QToolBar, QStatusBar { color: $chrome; }
+QToolBar QLabel#versionLabel { color: #a9d77d; }
 QMenuBar::item { padding: 4px 9px; margin: 1px; border-radius: 6px; }
 QMenuBar::item:selected { background: $hover; color: $accent; }
 QMenu { background: $panel; border: 1px solid $border; border-radius: 9px; padding: 6px; }
@@ -65,12 +67,14 @@ QMenu::item { padding: 6px 22px; border-radius: 5px; }
 QMenu::item:selected { background: $hover; color: $accent; }
 QTreeWidget, QListWidget, QPlainTextEdit, QTextBrowser, QLineEdit, QComboBox { background: $base; color: $text; border: 1px solid $border; border-radius: 8px; selection-background-color: $selection; selection-color: #f8fbf8; }
 QTreeWidget::item, QListWidget::item { padding: 3px; border-radius: 4px; }
-QPushButton, QToolButton { background: $button; color: $accent; border: 1px solid $border; border-radius: 8px; padding: 5px 10px; }
+QPushButton, QToolButton { background: $button; color: $chrome; border: 1px solid $border; border-radius: 8px; padding: 3px 9px; }
 QPushButton:hover, QToolButton:hover { background: $hover; }
 QPushButton:disabled, QToolButton:disabled { color: $muted; border-color: $border; }
 QTabWidget::pane { border: 1px solid $border; border-radius: 8px; background: $main; }
-QTabBar::tab { background: $panel; color: $text; border: 1px solid $border; border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 7px 14px; margin-right: 3px; }
+QTabBar::tab { background: $panel; color: $tab_text; border: 1px solid $border; border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 6px 10px; margin-right: 3px; }
 QTabBar::tab:selected { background: $selected; color: #f8fbf8; }
+QToolButton#tabCloseButton { background: transparent; color: #ae4b53; border: 0; border-radius: 4px; padding: 0; margin: 0 2px; font-weight: bold; }
+QToolButton#tabCloseButton:hover { background: $hover; color: #dc7779; }
 QHeaderView::section { background: $button; color: $accent; border: 0; padding: 5px; }
 QDockWidget::title { background: $button; color: $accent; padding: 6px; }
 QScrollBar { background: $base; width: 12px; }
@@ -79,6 +83,7 @@ QCheckBox { background: $panel; color: $text; padding: 4px 8px; spacing: 7px; }
 QCheckBox::indicator { width: 14px; height: 14px; border-radius: 4px; }
 QCheckBox::indicator:checked { background: $accent2; border: 1px solid $accent; }
 QCheckBox::indicator:unchecked { background: $base; border: 1px solid $border; }
+QToolBar QLineEdit { padding: 3px 8px; }
 """)
 
 
@@ -87,6 +92,23 @@ def style_for_theme(name: str) -> str:
 
 
 STYLE = style_for_theme("classic")
+
+
+class ReaderTabs(QTabWidget):
+    """Tabs with a centered, themeable close control on every tab."""
+
+    def addTab(self, widget: QWidget, title: str) -> int:
+        index = super().addTab(widget, title)
+        close = QToolButton(self.tabBar())
+        close.setObjectName("tabCloseButton")
+        close.setText("×")
+        close.setToolTip("关闭标签")
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setFont(QFont("Maple Mono NF CN", 13, QFont.Weight.Bold))
+        close.setFixedSize(20, 20)
+        close.clicked.connect(lambda checked=False, page=widget: self.tabCloseRequested.emit(self.indexOf(page)))
+        self.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, close)
+        return index
 
 # Search file-format filters. Text formats are on by default; binary formats
 # (PDF / images) are filename-only and stay off to avoid needless scanning.
@@ -829,8 +851,7 @@ class MainWindow(QMainWindow):
         self.tree_filter.textChanged.connect(self.filter_tree)
         tree_layout.addWidget(self.tree_filter)
         tree_layout.addWidget(self.tree)
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(True)
+        self.tabs = ReaderTabs()
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._tab_changed)
         split = QSplitter()
@@ -956,10 +977,10 @@ class MainWindow(QMainWindow):
         self.find_input.setFixedWidth(190)
         self.find_input.returnPressed.connect(self.find_next)
         local_layout.addWidget(self.find_input)
-        next_button = QPushButton("下一个")
-        next_button.clicked.connect(self.find_next)
-        local_layout.addWidget(next_button)
-        right_layout.addWidget(local_row, 0, Qt.AlignmentFlag.AlignRight)
+        self.next_button = QPushButton("下一个")
+        self.next_button.clicked.connect(self.find_next)
+        local_layout.addWidget(self.next_button)
+        right_layout.addWidget(local_row, 0, Qt.AlignmentFlag.AlignVCenter)
         global_row = QWidget(right)
         global_layout = QHBoxLayout(global_row)
         global_layout.setContentsMargins(0, 0, 0, 0)
@@ -994,13 +1015,14 @@ class MainWindow(QMainWindow):
         self.search_format.setMenu(format_menu)
         self._update_search_format_label()
         global_layout.addWidget(self.search_format)
-        global_button = QPushButton("搜索")
-        global_button.clicked.connect(self.global_search)
-        global_layout.addWidget(global_button)
+        self.global_button = QPushButton("搜索")
+        self.global_button.clicked.connect(self.global_search)
+        global_layout.addWidget(self.global_button)
         self.version_label = QLabel(f"M3 Reader · v{__version__}")
+        self.version_label.setObjectName("versionLabel")
         self.version_label.setToolTip(f"M3 Reader · v{__version__}")
         global_layout.addWidget(self.version_label)
-        right_layout.addWidget(global_row, 0, Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(global_row, 0, Qt.AlignmentFlag.AlignVCenter)
         self.header_controls = right
         # Keep the menus on their own row so larger fonts do not hide the last entries.
         self.header_toolbar = QToolBar("搜索", self)
@@ -1103,13 +1125,14 @@ class MainWindow(QMainWindow):
     def _update_search_format_label(self):
         selected = self.selected_search_formats()
         if not selected:
-            label = "格式 · 无"
+            label = "无格式"
         elif selected <= TEXT_SUFFIXES:
-            label = "格式 · 文本"
+            label = "文本格式"
         else:
             checked_count = sum(1 for check in self.format_checks.values() if check.isChecked())
-            label = f"格式 · {checked_count}"
+            label = f"格式 {checked_count} 类"
         self.search_format.setText(label)
+        self.search_format.setFixedWidth(max(86, self.search_format.sizeHint().width()))
         names = [name for name, check in self.format_checks.items() if check.isChecked()]
         self.search_format.setToolTip(
             "已选文件格式（可多选）：\n" + "\n".join(names)
@@ -1267,7 +1290,16 @@ class MainWindow(QMainWindow):
         large = size >= 20
         self.find_input.setFixedWidth(max(190, round(size * 8)))
         self.global_input.setFixedWidth(max(200, round(size * 8)))
-        self.search_format.setFixedWidth(max(120, min(230, round(size * 7))))
+        metrics = QFontMetrics(font)
+        button_width = max(self.next_button.sizeHint().width(),
+                           self.global_button.sizeHint().width())
+        self.next_button.setFixedWidth(button_width)
+        self.global_button.setFixedWidth(button_width)
+        self.search_format.setFixedWidth(max(86, self.search_format.sizeHint().width()))
+        control_height = max(30, round(metrics.height() * 1.45))
+        for control in (self.find_input, self.next_button, self.global_input,
+                        self.search_format, self.global_button):
+            control.setFixedHeight(control_height)
         self.find_input.setPlaceholderText("文件内查找" if large else "文件内搜索 Ctrl+F")
         self.global_input.setPlaceholderText("全局搜索" if large else "全局搜索 Ctrl+Shift+F")
         self.version_label.setText(f"M3 · v{__version__}" if large else f"M3 Reader · v{__version__}")
