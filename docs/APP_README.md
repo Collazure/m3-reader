@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-程序版本：2.9.3。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
+程序版本：2.9.4。资源默认位于项目内的 `resources/`；从其他工作目录启动仍按程序位置定位。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
@@ -137,7 +137,18 @@ TUI 左侧目录限宽，右侧阅读区占余下宽度，阅读区左侧显示�
 `Ctrl+C` 取消；命令失败会以黄色/红色留在状态栏，并给出参数范围或相近命令提示。
 命令栏输入 `help` 可查看完整命令。终端无法统一显示图片/PDF 像素，`open` 交给系统
 查看器（Windows 默认程序、Linux `xdg-open`/`gio`）；《大地巡旅》可用 `page 页号`
-直接阅读对应页 OCR。TUI 的 `search --scope local 关键词` 可限定来源（all、collected、
+直接阅读对应页 OCR。
+
+### 资源占用
+
+- GUI 资源树启动时只创建顶层节点，展开目录时才生成子项；筛选只构建匹配分支。
+- 图片标签页只保留当前可见图片的解码结果，切走后释放，切回时按原缩放比例重载。
+- 《大地巡旅》PDF 使用本地 `images/page_XXXX.jpg` 逐页显示（当前页一张图），不把整本
+  ~400 MB 扫描件载入内存；其他 PDF 仍使用 QtPdf。页码输入、上一页/下一页、缩放、
+  搜索命中跳页与续读位置保持不变。
+- TUI 的 `back` 对已打开文档保存路径与行号，返回时从磁盘重开，不长期保留多份全文。
+- 构建脚本排除未使用的 Qt3D / Quick / WebEngine / Multimedia 等模块，Ubuntu 版使用
+  `--strip`；需重新构建才能得到更小的可执行文件。TUI 的 `search --scope local 关键词` 可限定来源（all、collected、
 local、ocr）；`markdown source|render` 可切换 Markdown 源码与保留行号的终端排版。
 `font size N`、`font reader N`、`font menu N` 会提示在终端程序里调整字号；
 终端字体不受 TUI 控制。

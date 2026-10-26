@@ -9,8 +9,56 @@ if [[ ! -x "$python" ]]; then python="$(command -v python3)"; fi
 }
 dest="$project_root/bin/ubuntu"
 work="$project_root/build/pyinstaller-ubuntu"
-"$python" -m PyInstaller --noconfirm --clean --onefile --console --name m3-reader --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --exclude-module PySide6 --exclude-module PIL --exclude-module numpy "$project_root/scripts/entry_cli.py"
-"$python" -m PyInstaller --noconfirm --clean --onefile --windowed --name m3-reader-gui --add-data "$project_root/assets/icon.png:assets" --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets "$project_root/scripts/entry_gui.py"
+excludes=(
+  --exclude-module PySide6.Qt3DAnimation
+  --exclude-module PySide6.Qt3DCore
+  --exclude-module PySide6.Qt3DExtras
+  --exclude-module PySide6.Qt3DInput
+  --exclude-module PySide6.Qt3DLogic
+  --exclude-module PySide6.Qt3DRender
+  --exclude-module PySide6.QtBluetooth
+  --exclude-module PySide6.QtCharts
+  --exclude-module PySide6.QtDataVisualization
+  --exclude-module PySide6.QtGraphs
+  --exclude-module PySide6.QtGraphsWidgets
+  --exclude-module PySide6.QtHelp
+  --exclude-module PySide6.QtHttpServer
+  --exclude-module PySide6.QtLocation
+  --exclude-module PySide6.QtMultimedia
+  --exclude-module PySide6.QtMultimediaWidgets
+  --exclude-module PySide6.QtNetworkAuth
+  --exclude-module PySide6.QtNfc
+  --exclude-module PySide6.QtPositioning
+  --exclude-module PySide6.QtQml
+  --exclude-module PySide6.QtQuick
+  --exclude-module PySide6.QtQuick3D
+  --exclude-module PySide6.QtQuickControls2
+  --exclude-module PySide6.QtQuickWidgets
+  --exclude-module PySide6.QtRemoteObjects
+  --exclude-module PySide6.QtScxml
+  --exclude-module PySide6.QtSensors
+  --exclude-module PySide6.QtSerialBus
+  --exclude-module PySide6.QtSerialPort
+  --exclude-module PySide6.QtSpatialAudio
+  --exclude-module PySide6.QtSql
+  --exclude-module PySide6.QtStateMachine
+  --exclude-module PySide6.QtTest
+  --exclude-module PySide6.QtTextToSpeech
+  --exclude-module PySide6.QtUiTools
+  --exclude-module PySide6.QtWebChannel
+  --exclude-module PySide6.QtWebEngineCore
+  --exclude-module PySide6.QtWebEngineQuick
+  --exclude-module PySide6.QtWebEngineWidgets
+  --exclude-module PySide6.QtWebSockets
+  --exclude-module PySide6.QtWebView
+  --exclude-module tkinter
+  --exclude-module unittest
+  --exclude-module pydoc
+  --exclude-module PIL
+  --exclude-module numpy
+)
+"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --console --name m3-reader --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --exclude-module PySide6 "${excludes[@]}" "$project_root/scripts/entry_cli.py"
+"$python" -m PyInstaller --noconfirm --clean --onefile --strip --optimize 2 --windowed --name m3-reader-gui --add-data "$project_root/assets/icon.png:assets" --distpath "$dest" --workpath "$work" --specpath "$work" --paths "$project_root" --collect-submodules prts_tool.collectors --hidden-import PySide6.QtPdf --hidden-import PySide6.QtPdfWidgets "${excludes[@]}" "$project_root/scripts/entry_gui.py"
 cat > "$dest/m3-reader-gui.desktop" <<EOF
 [Desktop Entry]
 Type=Application

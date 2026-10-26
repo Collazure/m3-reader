@@ -14,7 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QImage, QTextCursor, QTextDocument
 
-from prts_tool.gui import CommandLine, MainWindow, MarkdownReader, TextReader
+from prts_tool.gui import BookPageReader, CommandLine, MainWindow, MarkdownReader, TextReader
 from prts_tool.library import SearchHit
 from prts_tool.paths import RESOURCES_DIR
 from prts_tool import reading
@@ -159,6 +159,50 @@ def test_format_menu_checkboxes_support_multiselect(app):
         assert window.selected_search_formats() == {".md", ".txt", ".csv", ".tsv", ".pdf"}
     finally:
         menu.hide()
+        window.close()
+
+
+def test_book_pdf_uses_page_images(app):
+    pdf = next((RESOURCES_DIR / "local" / "大地巡旅").glob("*.pdf"))
+    window = MainWindow()
+    try:
+        window.open_resource(pdf, page=10)
+        reader = window.tabs.currentWidget()
+        assert isinstance(reader, BookPageReader)
+        assert reader.page_count() == 454
+        assert reader.current_page() == 10
+        assert reader.original is not None and not reader.original.isNull()
+        reader.jump(11)
+        assert reader.current_page() == 11
+        assert window._reader_location(reader)[1] == 11
+        window.command_input.setText("page 20")
+        window.execute_gui_command()
+        assert reader.current_page() == 20
+        reader.set_active(False)
+        assert reader.original is None
+        reader.set_active(True)
+        assert reader.original is not None
+    finally:
+        window.close()
+
+
+def test_inactive_image_tabs_release_full_pixmaps(app):
+    images = sorted((RESOURCES_DIR / "collected" / "terra").rglob("*.jpg"))
+    if len(images) < 2:
+        pytest.skip("需要至少两张 terra 图片")
+    window = MainWindow()
+    try:
+        window.open_resource(images[0])
+        first = window.readers[str(images[0].resolve())]
+        window.open_resource(images[1])
+        second = window.readers[str(images[1].resolve())]
+        assert first.original is None       # inactive tab released its pixmap
+        assert second.original is not None
+        window.tabs.setCurrentWidget(first)
+        app.processEvents()
+        assert first.original is not None
+        assert second.original is None
+    finally:
         window.close()
 
 
@@ -318,8 +362,10 @@ def test_directory_index_and_optional_command_bar(app, tmp_path, monkeypatch):
     try:
         collected = next(window.tree.topLevelItem(i) for i in range(window.tree.topLevelItemCount())
                          if window.tree.topLevelItem(i).text(0) == "下载")
+        window._populate_tree_item(collected)
         text_root = next(collected.child(i) for i in range(collected.childCount())
                          if collected.child(i).text(0) == "PRTS 文本")
+        window._populate_tree_item(text_root)
         avg = next(text_root.child(i) for i in range(text_root.childCount())
                    if text_root.child(i).text(0) == "剧情")
         window.click_tree_item(avg, 0)

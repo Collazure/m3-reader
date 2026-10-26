@@ -14,7 +14,7 @@ from .jobs import update_arguments, update_command_sequence
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, parse_search_request, read_opinions,
                       SEARCH_TAGS, display_part, display_resource_id, relative_id, resource_files, resource_path, search_text,
                       source_kind, write_opinions)
-from .paths import APP_ICON_FILE, BOOK_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
+from .paths import APP_ICON_FILE, BOOK_DIR, BOOK_IMAGE_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
 from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
 
@@ -487,16 +487,38 @@ class ImageReader(QScrollArea):
     def __init__(self, path: Path):
         super().__init__()
         self.path = path
-        self.original = QPixmap(str(path))
+        self.original: QPixmap | None = None
         self.scale = 1.0
+        self.active = True
         self.label = QLabel()
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setWidget(self.label)
         self.setWidgetResizable(False)
+        self._load()
         self._draw()
 
+    def _load(self):
+        if self.original is None:
+            self.original = QPixmap(str(self.path))
+
+    def set_active(self, active: bool):
+        """Keep the decoded pixmap only for the visible image tab."""
+        if active == self.active:
+            return
+        self.active = active
+        if active:
+            self._load()
+            self._draw()
+        else:
+            self.original = None
+            self.label.clear()
+            self.label.resize(1, 1)
+
     def _draw(self):
-        if self.original.isNull():
+        if not self.active:
+            return
+        self._load()
+        if self.original is None or self.original.isNull():
             self.label.setText("图片无法读取")
             return
         scaled = self.original.scaled(self.original.size() * self.scale,
@@ -515,9 +537,29 @@ class ImageReader(QScrollArea):
 
 
 class PdfReader(QWidget):
+    """Common page API for Qt PDF and lightweight page-image readers."""
+    page_changed = Signal(int)
+
     def __init__(self, path: Path):
         super().__init__()
         self.path = path
+
+    def jump(self, page: int):
+        raise NotImplementedError
+
+    def current_page(self) -> int:
+        return 1
+
+    def page_count(self) -> int:
+        return 0
+
+    def set_active(self, active: bool):
+        pass
+
+
+class QtPdfReader(PdfReader):
+    def __init__(self, path: Path):
+        super().__init__(path)
         self.document = QPdfDocument(self)
         self.view = QPdfView(self)
         self.view.setDocument(self.document)
@@ -534,6 +576,8 @@ class PdfReader(QWidget):
         layout.addLayout(row)
         layout.addWidget(self.view)
         self.document.load(str(path))
+        self.view.pageNavigator().currentPageChanged.connect(
+            lambda _page: self.page_changed.emit(self.current_page()))
 
     def jump_from_box(self):
         try:
@@ -541,10 +585,151 @@ class PdfReader(QWidget):
         except ValueError:
             pass
 
+    def current_page(self) -> int:
+        return self.view.pageNavigator().currentPage() + 1
+
+    def page_count(self) -> int:
+        return self.document.pageCount()
+
     def jump(self, page: int):
-        page = max(1, min(self.document.pageCount(), page))
+        if self.page_count() <= 0:
+            return
+        page = max(1, min(self.page_count(), page))
         self.view.pageNavigator().jump(page - 1, QPointF(), 0)
         self.page_box.setText(str(page))
+
+
+class BookPageReader(PdfReader):
+    """View the scanned 大地巡旅 PDF through its existing page images.
+
+    This avoids QPdfDocument loading the whole ~400 MB scan and keeps only the
+    current page's pixmap in memory.
+    """
+
+    def __init__(self, path: Path):
+        super().__init__(path)
+        self.pages = sorted((page for page in BOOK_IMAGE_DIR.glob("page_*")
+                             if page.suffix.lower() in IMAGE_SUFFIXES),
+                            key=self._page_number)
+        self.numbers = [self._page_number(page) for page in self.pages]
+        self.index = 0
+        self.scale = 1.0
+        self.active = True
+        self.original: QPixmap | None = None
+
+        self.page_box = QLineEdit("1")
+        self.page_box.setMaximumWidth(55)
+        self.page_box.returnPressed.connect(self.jump_from_box)
+        previous = QPushButton("上一页")
+        following = QPushButton("下一页")
+        previous.clicked.connect(lambda: self.step(-1))
+        following.clicked.connect(lambda: self.step(1))
+        row = QHBoxLayout()
+        row.addWidget(QLabel("PDF 页码"))
+        row.addWidget(self.page_box)
+        row.addWidget(previous)
+        row.addWidget(following)
+        row.addStretch()
+
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll = QScrollArea()
+        self.scroll.setWidget(self.label)
+        self.scroll.setWidgetResizable(False)
+        self.scroll.viewport().installEventFilter(self)
+        layout = QVBoxLayout(self)
+        layout.addLayout(row)
+        layout.addWidget(self.scroll)
+        self.jump(1)
+
+    @staticmethod
+    def _page_number(path: Path) -> int:
+        match = re.search(r"(\d+)", path.stem)
+        return int(match.group(1)) if match else 0
+
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    def current_page(self) -> int:
+        return self.numbers[self.index] if self.numbers else 1
+
+    def jump_from_box(self):
+        try:
+            self.jump(int(self.page_box.text()))
+        except ValueError:
+            pass
+
+    def step(self, delta: int):
+        if self.pages:
+            self.jump(self.numbers[max(0, min(len(self.pages) - 1, self.index + delta))])
+
+    def jump(self, page: int):
+        if not self.pages:
+            self.page_box.setText("0")
+            self.page_changed.emit(1)
+            return
+        page = max(self.numbers[0], min(self.numbers[-1], page))
+        if page in self.numbers:
+            self.index = self.numbers.index(page)
+        else:
+            self.index = min(range(len(self.numbers)),
+                             key=lambda index: abs(self.numbers[index] - page))
+        self._load_page()
+        page = self.current_page()
+        self.page_box.setText(str(page))
+        self.page_changed.emit(page)
+
+    def _load_page(self):
+        if not self.active or not self.pages:
+            return
+        self.original = QPixmap(str(self.pages[self.index]))
+        self._draw()
+
+    def _draw(self):
+        if not self.active or self.original is None:
+            return
+        if self.original.isNull():
+            self.label.setText("图片无法读取")
+            return
+        scaled = self.original.scaled(self.original.size() * self.scale,
+                                      Qt.AspectRatioMode.KeepAspectRatio,
+                                      Qt.TransformationMode.SmoothTransformation)
+        self.label.setPixmap(scaled)
+        self.label.resize(scaled.size())
+
+    def set_active(self, active: bool):
+        if active == self.active:
+            return
+        self.active = active
+        if active:
+            self._load_page()
+        else:
+            self.original = None
+            self.label.clear()
+            self.label.resize(1, 1)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.scroll.viewport() and event.type() == QEvent.Type.Wheel
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            step = event.angleDelta().y() / 120
+            if step:
+                self.scale = max(.2, min(5, self.scale * (1.2 if step > 0 else .8)))
+                self._draw()
+            return True
+        return super().eventFilter(watched, event)
+
+
+def make_pdf_reader(path: Path) -> PdfReader:
+    """Use page images for the local 大地巡旅 scan; QtPdf for other PDFs."""
+    try:
+        if (path.resolve().parent == BOOK_DIR.resolve()
+                and "大地巡旅" in path.name
+                and any(page.suffix.lower() in IMAGE_SUFFIXES
+                        for page in BOOK_IMAGE_DIR.glob("page_*"))):
+            return BookPageReader(path)
+    except OSError:
+        pass
+    return QtPdfReader(path)
 
 
 class MainWindow(QMainWindow):
@@ -576,6 +761,7 @@ class MainWindow(QMainWindow):
         self.tree.setExpandsOnDoubleClick(False)
         self.tree.itemClicked.connect(self.click_tree_item)
         self.tree.itemDoubleClicked.connect(self.open_tree_item)
+        self.tree.itemExpanded.connect(self._populate_tree_item)
         tree_panel = QWidget()
         tree_layout = QVBoxLayout(tree_panel)
         tree_layout.setContentsMargins(4, 4, 4, 4)
@@ -1099,45 +1285,87 @@ class MainWindow(QMainWindow):
             "resume、next、prev、back、help、quit。")
 
     def reload_tree(self):
+        """Build only the top level; children are created when a folder opens."""
         self.tree.clear()
-        entries: dict[str, QTreeWidgetItem] = {}
         self.catalog_files = sorted(resource_files(), key=lambda p: p.relative_to(RESOURCES_DIR).as_posix().casefold())
+        self.catalog_dirs: dict[tuple[str, ...], dict[str, Path | None]] = {}
         for path in self.catalog_files:
+            parts = path.relative_to(RESOURCES_DIR).parts
+            for index in range(len(parts)):
+                children = self.catalog_dirs.setdefault(parts[:index], {})
+                children[parts[index]] = path if index == len(parts) - 1 else None
+        self._add_tree_level((), None)
+        if self.tree_filter.text():
+            self.filter_tree(self.tree_filter.text())
+
+    @staticmethod
+    def _item_parts(item: QTreeWidgetItem) -> tuple[str, ...]:
+        parts: list[str] = []
+        current = item
+        while current is not None:
+            part = current.data(0, Qt.ItemDataRole.UserRole + 1)
+            if part is None:
+                break
+            parts.append(part)
+            current = current.parent()
+        return tuple(reversed(parts))
+
+    def _add_tree_level(self, prefix: tuple[str, ...], parent: QTreeWidgetItem | None):
+        children = self.catalog_dirs.get(prefix, {})
+        for name in sorted(children, key=lambda value: display_part(value).casefold()):
+            path = children[name]
+            item = QTreeWidgetItem([display_part(name)])
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, name)
+            if path is not None:
+                item.setData(0, Qt.ItemDataRole.UserRole, str(path))
+            elif self.catalog_dirs.get(prefix + (name,)):
+                item.addChild(QTreeWidgetItem(["…"]))
+            if parent is None:
+                self.tree.addTopLevelItem(item)
+            else:
+                parent.addChild(item)
+
+    def _populate_tree_item(self, item: QTreeWidgetItem):
+        if item.data(0, Qt.ItemDataRole.UserRole):     # file
+            return
+        if item.data(0, Qt.ItemDataRole.UserRole + 2):  # filtered or already populated
+            return
+        prefix = self._item_parts(item)
+        item.takeChildren()
+        self._add_tree_level(prefix, item)
+        item.setData(0, Qt.ItemDataRole.UserRole + 2, True)
+
+    def filter_tree(self, term: str):
+        needle = term.strip().casefold()
+        if not needle:
+            self.reload_tree()
+            return
+        matches = []
+        for path in self.catalog_files:
+            parts = path.relative_to(RESOURCES_DIR).parts
+            shown = " / ".join(display_part(part) for part in parts).casefold()
+            if needle in shown:
+                matches.append(path)
+        self.tree.clear()
+        entries: dict[tuple[str, ...], QTreeWidgetItem] = {}
+        for path in matches:
             parts = path.relative_to(RESOURCES_DIR).parts
             parent = None
             for index, part in enumerate(parts):
-                key = "/".join(parts[:index + 1])
-                if key not in entries:
+                key = parts[:index + 1]
+                item = entries.get(key)
+                if item is None:
                     item = QTreeWidgetItem([display_part(part)])
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, part)
+                    item.setData(0, Qt.ItemDataRole.UserRole + 2, True)  # filter tree is complete
                     if parent is None:
                         self.tree.addTopLevelItem(item)
                     else:
                         parent.addChild(item)
                     entries[key] = item
-                parent = entries[key]
+                parent = item
             parent.setData(0, Qt.ItemDataRole.UserRole, str(path))
-        self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
-        if self.tree_filter.text():
-            self.filter_tree(self.tree_filter.text())
-
-    def filter_tree(self, term: str):
-        needle = term.strip().casefold()
-
-        def visit(item, parent_matches: bool = False) -> bool:
-            matched = parent_matches or needle in item.text(0).casefold()
-            visible_child = False
-            for index in range(item.childCount()):
-                if visit(item.child(index), matched):
-                    visible_child = True
-            visible = not needle or matched or visible_child
-            item.setHidden(not visible)
-            if needle and visible_child:
-                item.setExpanded(True)
-            return visible
-
-        for index in range(self.tree.topLevelItemCount()):
-            visit(self.tree.topLevelItem(index))
+        self.tree.expandAll()
 
     def open_tree_item(self, item, _column):
         value = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1207,7 +1435,7 @@ class MainWindow(QMainWindow):
         if isinstance(reader, TextReader):
             return reader.textCursor().blockNumber() + 1, None
         if isinstance(reader, PdfReader):
-            return 1, reader.view.pageNavigator().currentPage() + 1
+            return 1, reader.current_page()
         return 1, None
 
     def execute_gui_command(self):
@@ -1402,8 +1630,8 @@ class MainWindow(QMainWindow):
             elif suffix in IMAGE_SUFFIXES:
                 reader = ImageReader(path)
             elif suffix in PDF_SUFFIXES:
-                reader = PdfReader(path)
-                reader.view.pageNavigator().currentPageChanged.connect(self._queue_position_save)
+                reader = make_pdf_reader(path)
+                reader.page_changed.connect(self._queue_position_save)
             else:
                 return
             self.readers[key] = reader
@@ -1458,7 +1686,11 @@ class MainWindow(QMainWindow):
         if self._active_reader is not reader:
             self._position_timer.stop()
             self._save_reader_position(self._active_reader)
+            if isinstance(self._active_reader, (ImageReader, PdfReader)):
+                self._active_reader.set_active(False)
         self._active_reader = reader
+        if isinstance(reader, (ImageReader, PdfReader)):
+            reader.set_active(True)
         self.current_path = reader.path if hasattr(reader, "path") else None
 
     def _queue_position_save(self, *_):
@@ -1476,7 +1708,7 @@ class MainWindow(QMainWindow):
                 save_position(reader.path, line=cursor.blockNumber() + 1,
                               quote=cursor.block().text())
             elif isinstance(reader, PdfReader):
-                save_position(reader.path, page=reader.view.pageNavigator().currentPage() + 1)
+                save_position(reader.path, page=reader.current_page())
             elif isinstance(reader, ImageReader):
                 save_position(reader.path)
         except (OSError, ValueError):

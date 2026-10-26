@@ -254,6 +254,8 @@ def test_back_returns_previous_pages(tui):
     first_text = tui.reader.text
     tui._open(second)
     assert tui.selected == second
+    assert tui._view_history[-1]["kind"] == "resource"
+    assert tui._view_history[-1]["text"] is None
 
     tui._execute("back")
     assert tui.selected == first

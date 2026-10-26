@@ -373,6 +373,7 @@ class TerminalLibrary:
         self.note_draft: list[str] = []
         self.current_pdf_page: int | None = None
         self.viewing_resource = False
+        self.view_kind = "static"
         self.markdown_formatted = True
         self._source_text = ""
         self.update_task = None
@@ -662,6 +663,7 @@ class TerminalLibrary:
         if remember:
             self._push_view()
         self.viewing_resource = False
+        self.view_kind = "static"
         self.results_mode = False
         self.results = []
         self.result_rows = []
@@ -674,18 +676,24 @@ class TerminalLibrary:
 
     # -------------------------------------------------------------- 页面历史
     def _snapshot_view(self) -> dict:
-        return {
-            "text": self.reader.text,
+        view = {
             "line": self.reader.buffer.document.cursor_position_row + 1,
             "selected": self.selected,
             "current_pdf_page": self.current_pdf_page,
             "viewing_resource": self.viewing_resource,
-            "source_text": self._source_text,
             "results": self.results,
             "result_rows": self.result_rows,
             "results_mode": self.results_mode,
             "status_text": self._status_text,
+            "view_kind": self.view_kind,
+            "source_text": self._source_text,
         }
+        if self.view_kind in {"text", "image", "pdf"} and self.selected and self.selected.is_file():
+            # Reopen from disk instead of retaining a second copy of large texts.
+            view.update(kind="resource", path=self.selected, text=None)
+        else:
+            view.update(kind="static", path=None, text=self.reader.text)
+        return view
 
     def _push_view(self) -> None:
         self._view_history.append(self._snapshot_view())
@@ -702,6 +710,20 @@ class TerminalLibrary:
             return
         self._save_reading()
         view = self._view_history.pop()
+        if view.get("kind") == "resource" and view.get("path"):
+            path = view["path"]
+            if not path.is_file():
+                self._set_status(f"文件已不存在：{path}", "status.error")
+                return
+            self._open(path, view["line"], remember=False)
+            self.current_pdf_page = view["current_pdf_page"]
+            self.view_kind = view.get("view_kind", "text")
+            self._save_reading()
+            self.app.layout.focus(self.reader)
+            self._set_status(f"已返回 · {view['status_text']}", "status.info")
+            self.app.invalidate()
+            return
+        self.view_kind = view.get("view_kind", "static")
         self.viewing_resource = False
         self.reader.text = view["text"]
         self.selected = view["selected"]
@@ -941,6 +963,7 @@ class TerminalLibrary:
         saved_line, saved_page = position_for(path) if line is None or path.suffix.lower() in PDF_SUFFIXES else (1, None)
         line = line or saved_line
         if path.suffix.lower() in TEXT_SUFFIXES:
+            self.view_kind = "text"
             self._source_text = path.read_text(encoding="utf-8", errors="replace")
             self.reader.text = (render_terminal_markdown(self._source_text)
                                 if path.suffix.lower() == ".md" and self.markdown_formatted
@@ -950,6 +973,7 @@ class TerminalLibrary:
             self._jump_buffer(self.reader, line)
             self._set_status(f"{kind} · {resource_id} · 第 {line} / {total} 行", "status.info")
         elif path.suffix.lower() in IMAGE_SUFFIXES:
+            self.view_kind = "image"
             parts = path.relative_to(RESOURCES_DIR).parts
             ocr = TERRA_OCR_DIR / parts[-3] / (parts[-2] + ".md") if len(parts) >= 4 and parts[0] == "collected" else None
             body = f"图片：{resource_id}\n\n输入 open 使用系统查看器查看原图。\n"
@@ -957,6 +981,7 @@ class TerminalLibrary:
                 body += f"\n关联 OCR：{relative_id(ocr)}\n\n" + ocr.read_text(encoding="utf-8", errors="replace")
             self._show(f"{kind} · {resource_id}", body, remember=False)
         elif path.suffix.lower() in PDF_SUFFIXES:
+            self.view_kind = "pdf"
             self._show(f"{kind} · {resource_id}",
                        f"PDF：{resource_id}\n\n输入 page 页号 阅读对应页 OCR；输入 open 使用系统查看器查看原件。",
                        remember=False)
@@ -1493,6 +1518,7 @@ class TerminalLibrary:
         self._push_view()
         self._show(f"PDF 第 {page} 页 OCR · 共 {len(self._book_pages)} 页",
                    self._book_text[start:end], remember=False)
+        self.view_kind = "page"
         self.current_pdf_page = page
         self.viewing_resource = True
         self._save_reading()

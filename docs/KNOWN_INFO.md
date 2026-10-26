@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前版本为 2.9.3 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
+| K02 | 当前版本为 2.9.4 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -52,6 +52,7 @@
 | K43 | Ubuntu CI 曾因 build_ubuntu.sh 中混入 CRLF 在打包末尾失败；.gitattributes 固定 shell 脚本 LF | .gitattributes、scripts/build_ubuntu.sh；2026-10-26 |
 | K44 | GUI 全局检索的文件格式筛选为可多选勾选菜单（复选框）；文本默认开启，PDF/图片默认关闭且仅按文件名匹配；右侧标签用绿/暖红区分包含/排除 | prts_tool/gui.py、prts_tool/library.py；2026-10-26 |
 | K45 | Qt 全局样式中的固定字号导致任务栏字号不一致；菜单与搜索区分行，放大时搜索控件再分两行 | prts_tool/gui.py；2026-10-26 |
+| K46 | 轻量化：GUI 树按需展开、图片标签释放非活动 pixmap、大地巡旅 PDF 用页面图；TUI back 按路径重开；构建排除未用 Qt 模块 | prts_tool/gui.py、tui.py、scripts/build_*；实测启动 125→114 MB、5 图 203→131 MB、巡旅 PDF 525→127 MB、搜索后 241→159 MB |
 
 ## 待实现 / 待验证
 
