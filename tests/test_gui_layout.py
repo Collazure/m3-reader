@@ -69,7 +69,7 @@ def test_menus_command_bar_and_icon(app):
         assert any(action.text() == "更新意见" for action in window.help_menu.actions())
         assert any(action.text() == "命令栏" for action in window.tools_menu.actions())
         assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示", "阅读字号", "任务栏字号"]
-        assert window.menuBar().cornerWidget() is not None
+        assert window.header_toolbar.actions()[-1].defaultWidget() is window.header_controls
         assert not window.windowIcon().isNull()
         assert window.command_dock.isHidden()
         window.tree_filter.setText("不存在的资源名 12345")
@@ -114,7 +114,7 @@ def test_search_results_in_reader_tab_with_two_line_entries(app):
         assert window.search_summary.isHidden()
         assert window.tabs.indexOf(window.search_panel) < 0  # the tab opens when a search starts
         calls = []
-        window.global_search = lambda: calls.append((window.global_input.text(), window.search_scope.currentData()))
+        window.global_search = lambda *, scope="all": calls.append((window.global_input.text(), scope))
         window.command_input.setText("search --scope local 泰拉 年表")
         window.execute_gui_command()
         assert calls == [("泰拉 年表", "local")]
@@ -139,21 +139,43 @@ def test_search_hit_opens_source_without_eager_markdown_or_pdf(app):
 def test_search_tab_tags_and_independent_font_commands(app):
     window = MainWindow()
     try:
+        assert [window.search_format.itemData(i) for i in range(7)] == [
+            None, {".md", ".txt", ".csv", ".tsv", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"},
+            {".md"}, {".txt"}, {".csv"}, {".tsv"}, {".pdf"}]
+        window.search_format.setCurrentIndex(2)
         window.global_input.setText("故事")
         window.global_search()
         assert window.tabs.currentWidget() is window.search_panel
+        assert window.search_worker.formats == {".md"}
         window.search_worker.wait(30000)
         yes, no = window.tag_buttons["特殊"]
         yes.setChecked(True)
         assert yes.isChecked() and not no.isChecked()
+        assert "#315b46" in yes.styleSheet()
+        assert "#a9e8b5" in window.tag_labels["特殊"].styleSheet()
         no.setChecked(True)
         assert no.isChecked() and not yes.isChecked()
+        assert "#664042" in no.styleSheet()
+        assert "#efadad" in window.tag_labels["特殊"].styleSheet()
+        no.setChecked(False)
+        assert "#29383a" in no.styleSheet()
+        assert "#cce08c" in window.tag_labels["特殊"].styleSheet()
         window.command_input.setText("font menu 16")
         window.execute_gui_command()
         assert window.menu_font_size == 16
         assert window.reader_font_size == 14
         assert window.online_menu.font().pointSizeF() == 16
         assert [action.text() for action in window.menuBar().actions()][:2] == ["导入", "阅读"]
+        window.resize(1500, 920)
+        window.show()
+        window.set_menu_font_size(32)
+        app.processEvents()
+        assert all(widget.font().pointSizeF() == 32 for widget in (
+            window.menuBar(), window.global_input, window.search_format,
+            window.version_label, window.module, window.mode))
+        assert window.menuBar().actionGeometry(window.menuBar().actions()[-1]).right() < window.menuBar().width()
+        assert window.header_controls.sizeHint().width() <= window.header_toolbar.width()
+        assert window.header_layout.direction().name == "TopToBottom"
         window.command_input.setText("font size 18")
         window.execute_gui_command()
         assert window.reader_font_size == 18

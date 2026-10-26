@@ -19,23 +19,25 @@ from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
 
 try:
-    from PySide6.QtCore import QEvent, QPointF, QProcess, Qt, QThread, QTimer, QUrl, Signal
+    from PySide6.QtCore import QEvent, QPointF, QProcess, QSignalBlocker, Qt, QThread, QTimer, QUrl, Signal
     from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat
     from PySide6.QtPdf import QPdfDocument
     from PySide6.QtPdfWidgets import QPdfView
-    from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QHBoxLayout,
+    from PySide6.QtWidgets import (QApplication, QBoxLayout, QComboBox, QDockWidget, QHBoxLayout,
                                    QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
                                    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-                                   QTabWidget, QTextBrowser, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
+                                   QSizePolicy, QTabWidget, QTextBrowser, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QWidgetAction,
                                    QVBoxLayout, QWidget)
 except ImportError as exc:  # pragma: no cover - tested with the optional Qt runtime
     raise SystemExit("GUI 需要 PySide6。请运行 python -m pip install PySide6 PySide6-Addons") from exc
 
 
 STYLE = """
-QWidget { background: #1f2329; color: #a8cfa7; font-family: 'Maple Mono NF CN','Noto Sans Mono CJK SC',monospace; font-size: 13px; }
+QWidget { background: #1f2329; color: #a8cfa7; font-family: 'Maple Mono NF CN','Noto Sans Mono CJK SC',monospace; }
 QMainWindow, QDockWidget { background: #191f24; }
 QToolBar, QMenuBar, QStatusBar { background: #202a30; border-bottom: 1px solid #4f5f5f; spacing: 7px; padding: 5px; }
+QMenuBar::item { padding: 4px 7px; margin: 0; }
+QMenuBar::item:selected { background: #385246; color: #f0f9f9; }
 QMenu { background: #202a30; border: 1px solid #688a71; padding: 5px; }
 QMenu::item { padding: 5px 22px; }
 QMenu::item:selected { background: #385246; color: #f0f9f9; }
@@ -57,18 +59,19 @@ class SearchThread(QThread):
     ready = Signal(list)
 
     def __init__(self, query: str, scope: str = "all", include_tags=None, exclude_tags=None,
-                 current_directory=None):
+                 current_directory=None, formats=None):
         super().__init__()
         self.query = query
         self.scope = scope
         self.include_tags = include_tags or set()
         self.exclude_tags = exclude_tags or set()
         self.current_directory = current_directory
+        self.formats = formats
 
     def run(self):
         self.ready.emit(search_text(self.query, limit=1000, scope=self.scope,
                                     include_tags=self.include_tags, exclude_tags=self.exclude_tags,
-                                    current_directory=self.current_directory))
+                                    current_directory=self.current_directory, formats=self.formats))
 
 
 class CommandLine(QLineEdit):
@@ -571,6 +574,7 @@ class MainWindow(QMainWindow):
         split.setSizes([360, 1100])
         self.setCentralWidget(split)
         self.make_toolbar()
+        self.set_menu_font_size(self.menu_font_size)
         self.make_search_dock()
         self.make_history_dock()
         self.make_notes_dock()
@@ -595,7 +599,7 @@ class MainWindow(QMainWindow):
         local_menu = self.local_menu = QMenu("本地资料", self.import_menu)
         self.import_menu.addMenu(online_menu)
         self.import_menu.addMenu(local_menu)
-        controls = QWidget()
+        controls = self.online_controls = QWidget()
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(8, 4, 8, 4)
         controls_layout.addWidget(QLabel("模块"))
@@ -653,35 +657,65 @@ class MainWindow(QMainWindow):
         self.help_menu.addAction("关于 M3 Reader", lambda: QMessageBox.information(
             self, "关于 M3 Reader", f"M3 Reader {__version__}\nPRTS 资料阅读与采集工具"))
         right = QWidget(self)
-        right_layout = QHBoxLayout(right)
+        right_layout = self.header_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, right)
         right_layout.setContentsMargins(4, 0, 4, 0)
         right_layout.setSpacing(5)
+        local_row = QWidget(right)
+        local_layout = QHBoxLayout(local_row)
+        local_layout.setContentsMargins(0, 0, 0, 0)
+        local_layout.setSpacing(5)
         self.find_input = QLineEdit()
         self.find_input.setPlaceholderText("文件内搜索 Ctrl+F")
+        self.find_input.setToolTip("文件内搜索 Ctrl+F")
         self.find_input.setFixedWidth(190)
         self.find_input.returnPressed.connect(self.find_next)
-        right_layout.addWidget(self.find_input)
+        local_layout.addWidget(self.find_input)
         next_button = QPushButton("下一个")
         next_button.clicked.connect(self.find_next)
-        right_layout.addWidget(next_button)
+        local_layout.addWidget(next_button)
+        right_layout.addWidget(local_row, 0, Qt.AlignmentFlag.AlignRight)
+        global_row = QWidget(right)
+        global_layout = QHBoxLayout(global_row)
+        global_layout.setContentsMargins(0, 0, 0, 0)
+        global_layout.setSpacing(5)
         self.global_input = QLineEdit()
         self.global_input.setPlaceholderText("全局搜索 Ctrl+Shift+F")
+        self.global_input.setToolTip("全局搜索 Ctrl+Shift+F")
         self.global_input.setFixedWidth(200)
         self.global_input.returnPressed.connect(self.global_search)
-        right_layout.addWidget(self.global_input)
-        self.search_scope = QComboBox()
-        self.search_scope.addItem("全部", "all")
-        self.search_scope.addItem("采集文本", "collected")
-        self.search_scope.addItem("本地资料", "local")
-        self.search_scope.addItem("OCR", "ocr")
-        self.search_scope.setToolTip("限定全库检索来源")
-        right_layout.addWidget(self.search_scope)
+        global_layout.addWidget(self.global_input)
+        self.search_format = QComboBox()
+        self.search_format.addItem("文本格式（默认）", None)
+        self.search_format.addItem("所有格式", TEXT_SUFFIXES | IMAGE_SUFFIXES | PDF_SUFFIXES)
+        self.search_format.addItem("Markdown · .md", {".md"})
+        self.search_format.addItem("纯文本 · .txt", {".txt"})
+        self.search_format.addItem("CSV · .csv", {".csv"})
+        self.search_format.addItem("TSV · .tsv", {".tsv"})
+        self.search_format.addItem("PDF 文件名 · .pdf", {".pdf"})
+        self.search_format.addItem("JPEG 文件名", {".jpg", ".jpeg"})
+        self.search_format.addItem("PNG 文件名 · .png", {".png"})
+        self.search_format.addItem("WebP 文件名 · .webp", {".webp"})
+        self.search_format.addItem("GIF 文件名 · .gif", {".gif"})
+        self.search_format.addItem("BMP 文件名 · .bmp", {".bmp"})
+        self.search_format.setToolTip("默认检索文本；PDF/图片按文件名检索，来源和栏目请用右侧标签")
+        global_layout.addWidget(self.search_format)
         global_button = QPushButton("搜索")
         global_button.clicked.connect(self.global_search)
-        right_layout.addWidget(global_button)
-        right_layout.addWidget(QLabel(f"M3 Reader · v{__version__}"))
+        global_layout.addWidget(global_button)
+        self.version_label = QLabel(f"M3 Reader · v{__version__}")
+        self.version_label.setToolTip(f"M3 Reader · v{__version__}")
+        global_layout.addWidget(self.version_label)
+        right_layout.addWidget(global_row, 0, Qt.AlignmentFlag.AlignRight)
         self.header_controls = right
-        self.menuBar().setCornerWidget(right, Qt.Corner.TopRightCorner)
+        # Keep the six menus on their own row so larger menu fonts cannot hide View/Help.
+        self.header_toolbar = QToolBar("搜索", self)
+        self.header_toolbar.setMovable(False)
+        self.header_toolbar.setFloatable(False)
+        spacer = QWidget(self.header_toolbar)
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.header_toolbar.addWidget(spacer)
+        self.header_toolbar.addWidget(right)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.header_toolbar)
         self.vim_input = QLineEdit(self)
         self.vim_input.setMaximumWidth(350)
         self.vim_input.returnPressed.connect(self.run_vim_input)
@@ -723,6 +757,7 @@ class MainWindow(QMainWindow):
         filters_layout = QVBoxLayout(filters)
         filters_layout.addWidget(QLabel("标签筛选  ·  ＋包含 / －排除"))
         self.tag_buttons = {}
+        self.tag_labels = {}
         for tag in SEARCH_TAGS:
             row = QWidget()
             row_layout = QHBoxLayout(row)
@@ -739,6 +774,8 @@ class MainWindow(QMainWindow):
             yes.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, True, checked))
             no.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, False, checked))
             self.tag_buttons[tag] = (yes, no)
+            self.tag_labels[tag] = label
+            self.paint_search_tag(tag)
             filters_layout.addWidget(row)
         filters_layout.addStretch(1)
         scroll = QScrollArea()
@@ -755,9 +792,30 @@ class MainWindow(QMainWindow):
         yes, no = self.tag_buttons[tag]
         opposite = no if positive else yes
         if checked and opposite.isChecked():
-            opposite.setChecked(False)
+            with QSignalBlocker(opposite):
+                opposite.setChecked(False)
+        self.paint_search_tag(tag)
         if self.global_input.text().strip() and not (self.search_worker and self.search_worker.isRunning()):
             self.global_search()
+
+    def paint_search_tag(self, tag: str):
+        yes, no = self.tag_buttons[tag]
+        label = self.tag_labels[tag]
+        label_color = "#8cd0d3" if tag in {"下载", "本地", "当前目录"} else "#cce08c"
+        if yes.isChecked():
+            label_color = "#a9e8b5"
+        elif no.isChecked():
+            label_color = "#efadad"
+        label.setStyleSheet(f"color: {label_color}")
+        for button, active, background, foreground, border in (
+            (yes, yes.isChecked(), "#315b46", "#c9f5cf", "#77c58a"),
+            (no, no.isChecked(), "#664042", "#ffe1d8", "#d98f8c")):
+            button.setStyleSheet(
+                f"background-color: {background if active else '#29383a'}; "
+                f"color: {foreground if active else '#81998d'}; "
+                f"border: 1px solid {border if active else '#41534b'}; "
+                "padding: 5px 8px; font-weight: bold;"
+            )
 
     def make_history_dock(self):
         self.history_tree = QTreeWidget()
@@ -834,8 +892,25 @@ class MainWindow(QMainWindow):
         font = self.menuBar().font()
         font.setPointSizeF(size)
         self.menuBar().setFont(font)
+        self.header_toolbar.setFont(font)
         self.header_controls.setFont(font)
-        self.header_controls.setStyleSheet(f"font-size: {size:g}pt")
+        self.online_controls.setFont(font)
+        for widget in (*self.header_controls.findChildren(QWidget),
+                       *self.online_controls.findChildren(QWidget)):
+            widget.setFont(font)
+        large = size >= 20
+        self.find_input.setFixedWidth(max(190, round(size * 8)))
+        self.global_input.setFixedWidth(max(200, round(size * 8)))
+        self.search_format.setFixedWidth(max(170, min(280, round(size * 9))))
+        self.find_input.setPlaceholderText("文件内查找" if large else "文件内搜索 Ctrl+F")
+        self.global_input.setPlaceholderText("全局搜索" if large else "全局搜索 Ctrl+Shift+F")
+        self.version_label.setText(f"M3 · v{__version__}" if large else f"M3 Reader · v{__version__}")
+        self.header_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if large else QBoxLayout.Direction.LeftToRight)
+        self.header_layout.invalidate()
+        self.header_controls.adjustSize()
+        self.header_controls.updateGeometry()
+        self.header_toolbar.updateGeometry()
         for menu in (self.import_menu, self.reading_menu, self.search_menu,
                      self.tools_menu, self.view_menu, self.help_menu,
                      self.online_menu, self.local_menu, self.font_menu, self.menu_font_menu):
@@ -1087,9 +1162,8 @@ class MainWindow(QMainWindow):
             elif command == "search":
                 if rest:
                     query, scope = parse_search_request(rest)
-                    self.search_scope.setCurrentIndex(self.search_scope.findData(scope))
                     self.global_input.setText(query)
-                    self.global_search()
+                    self.global_search(scope=scope)
                 else:
                     self.global_input.setFocus()
             elif command == "jump":
@@ -1330,7 +1404,7 @@ class MainWindow(QMainWindow):
                 reader.moveCursor(QTextCursor.MoveOperation.Start)
                 reader.find(term)
 
-    def global_search(self):
+    def global_search(self, *, scope: str = "all"):
         term = self.global_input.text().strip()
         if not term or (self.search_worker and self.search_worker.isRunning()):
             return
@@ -1345,7 +1419,8 @@ class MainWindow(QMainWindow):
         include = {tag for tag, (yes, _) in self.tag_buttons.items() if yes.isChecked()}
         exclude = {tag for tag, (_, no) in self.tag_buttons.items() if no.isChecked()}
         current_dir = relative_id(self.search_context_path.parent) if getattr(self, "search_context_path", None) else None
-        self.search_worker = SearchThread(term, self.search_scope.currentData(), include, exclude, current_dir)
+        self.search_worker = SearchThread(term, scope, include, exclude, current_dir,
+                                          self.search_format.currentData())
         self.search_worker.ready.connect(self.show_hits)
         self.search_worker.start()
 
@@ -1353,11 +1428,14 @@ class MainWindow(QMainWindow):
         self.search_hits = hits
         rows = ["<html><body style='color:#a8cfa7;font-family:monospace'>"]
         for index, hit in enumerate(hits, 1):
-            location = f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行"
+            suffix = Path(hit.resource_id).suffix.lower()
+            binary = suffix in PDF_SUFFIXES | IMAGE_SUFFIXES
+            location = ("PDF 文件名" if suffix in PDF_SUFFIXES else "图片文件名") if binary else (
+                f"第 {hit.page} 页" if hit.page else f"第 {hit.line} 行")
             source = html.escape(display_resource_id(hit.resource_id))
             excerpt = html.escape(hit.excerpt)
-            title = f"{index:04d}  {source}:{hit.line}  ·  {location}"
-            body = ("[文件名] " if hit.kind == "title" else "") + excerpt
+            title = f"{index:04d}  {source}{'' if binary else f':{hit.line}'}  ·  {location}"
+            body = ("[文件名] " if hit.kind == "title" and not binary else "") + excerpt
             rows.append(f"<p style='margin:9px 8px 1px'><a href='m3hit:{index - 1}' "
                         f"style='color:#8cd0d3;text-decoration:none'>{title}</a></p>")
             rows.append(f"<p style='margin:0 8px 9px 34px'><a href='m3hit:{index - 1}' "
@@ -1372,7 +1450,7 @@ class MainWindow(QMainWindow):
         if len(hits) >= 1000:
             message += " · 达到显示上限，请缩小范围或关键词"
         if not hits:
-            message = "没有命中；试试更短的关键词或切换来源范围"
+            message = "没有命中；试试更短的关键词，或调整格式与标签"
         self.search_summary.setText(message)
         tab_index = self.tabs.indexOf(self.search_panel)
         if tab_index >= 0:

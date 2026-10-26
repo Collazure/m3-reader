@@ -157,15 +157,20 @@ def parse_search_request(text: str) -> tuple[str, str]:
 def search_text(query: str, *, limit: int = 500, scope: str = "all",
                 include_tags: set[str] | None = None, exclude_tags: set[str] | None = None,
                 current_directory: str | None = None,
+                formats: set[str] | None = None,
                 files: Iterator[Path] | None = None) -> list[SearchHit]:
     term = query.strip().casefold()
     if not term or limit < 1:
         return []
     if scope not in SEARCH_SCOPES:
         raise ValueError(f"未知搜索范围：{scope}")
+    allowed_formats = TEXT_SUFFIXES if formats is None else formats
+    known_formats = TEXT_SUFFIXES | IMAGE_SUFFIXES | PDF_SUFFIXES
+    if not allowed_formats <= known_formats:
+        raise ValueError(f"未知文件格式：{allowed_formats - known_formats}")
     candidates = []
     for path in files if files is not None else resource_files():
-        if path.suffix.lower() not in TEXT_SUFFIXES:
+        if path.suffix.lower() not in allowed_formats:
             continue
         resource_id = relative_id(path)
         if scope == "collected" and not resource_id.startswith("collected/"):
@@ -186,6 +191,8 @@ def search_text(query: str, *, limit: int = 500, scope: str = "all",
         return title_hits[:limit]
     hits: list[SearchHit] = []
     for path, resource_id in candidates:
+        if path.suffix.lower() not in TEXT_SUFFIXES:
+            continue  # PDF and image files have filename hits; OCR text is indexed separately.
         page: int | None = None
         try:
             with path.open("r", encoding="utf-8", errors="replace") as stream:

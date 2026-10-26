@@ -27,6 +27,32 @@ def test_parse_search_request():
     assert library.parse_search_request("泰拉 年表") == ("泰拉 年表", "all")
 
 
+def test_search_formats_filter_name_and_content(tmp_path, monkeypatch):
+    root = tmp_path / "resources"
+    local = root / "local"
+    local.mkdir(parents=True)
+    for suffix in (".md", ".txt", ".csv", ".tsv"):
+        (local / f"匹配{suffix}").write_text("匹配正文\n", encoding="utf-8")
+    monkeypatch.setattr(library, "RESOURCES_DIR", root)
+    hits = library.search_text("匹配", formats={".md"})
+    assert {hit.resource_id for hit in hits} == {"local/匹配.md"}
+    assert {hit.kind for hit in hits} == {"title", "content"}
+
+
+def test_binary_formats_are_filename_only_and_off_by_default(tmp_path, monkeypatch):
+    root = tmp_path / "resources"
+    local = root / "local"
+    local.mkdir(parents=True)
+    (local / "匹配.txt").write_text("匹配正文\n", encoding="utf-8")
+    (local / "匹配.pdf").write_bytes(b"%PDF-1.7\n")
+    (local / "匹配.png").write_bytes(b"PNG")
+    monkeypatch.setattr(library, "RESOURCES_DIR", root)
+    assert {hit.resource_id for hit in library.search_text("匹配")} == {"local/匹配.txt"}
+    hits = library.search_text("匹配", formats={".pdf", ".png"})
+    assert {hit.resource_id for hit in hits} == {"local/匹配.pdf", "local/匹配.png"}
+    assert {hit.kind for hit in hits} == {"title"}
+
+
 def test_nested_search_tags_and_exclusion(tmp_path, monkeypatch):
     root = tmp_path / "resources"
     main = root / "collected/prts_text/avg/主线/第01章"
