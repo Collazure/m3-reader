@@ -90,6 +90,13 @@ def test_compact_header_and_reader_title(tui):
     assert tui.reader_frame.title == "阅读区"
     assert tui.directory_frame.title == "资源目录"
     assert len(tui.app.layout.container.children) == 3
+
+
+def test_markdown_opens_rendered_by_default(tui):
+    tui._open(RESOURCES_DIR / "README.md")
+    assert tui.markdown_formatted
+    assert tui._source_text.startswith("# 资源目录")
+    assert tui.reader.text.startswith("▸ 资源目录")
     assert not hasattr(tui, "heading")
 
 

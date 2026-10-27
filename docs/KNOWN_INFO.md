@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前源码版本为 2.10.3；顶部控件尺寸与标签关闭按钮、四主题文字颜色均由共用 Qt 代码控制 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py；2026-10-27 |
+| K02 | 当前源码版本为 2.10.4；Markdown 首次打开、恢复阅读默认格式化；按行跳转仅临时显示源码 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、tui.py；2026-10-27 |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |

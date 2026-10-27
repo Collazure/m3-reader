@@ -487,6 +487,8 @@ class MarkdownReader(TextReader):
             "a { color: #8cd0d3; } blockquote { color: #a8b9a7; margin-left: 18px; } "
             "code,pre { color: #d5e6c7; background-color: #29383a; }")
         self.browser.anchorClicked.connect(self.link_activated)
+        self._formatted_source_line = 1
+        self.browser.verticalScrollBar().valueChanged.connect(self._record_formatted_scroll)
         self._rendered = False
         self.formatted = False
         self.set_formatted(initial_formatted)
@@ -512,6 +514,31 @@ class MarkdownReader(TextReader):
             self.browser.hide()
             if focus:
                 self.setFocus()
+
+    def _record_formatted_scroll(self, value: int):
+        bar = self.browser.verticalScrollBar()
+        if self.formatted and bar.maximum() > 0:
+            self._formatted_source_line = 1 + round(
+                (self.blockCount() - 1) * value / bar.maximum())
+
+    def restore_formatted_position(self, source_line: int):
+        """Resume at approximately the same place without leaving rendered mode."""
+        self._formatted_source_line = max(1, min(source_line, self.blockCount()))
+        fraction = (self._formatted_source_line - 1) / max(1, self.blockCount() - 1)
+
+        def apply_position():
+            try:
+                if self.formatted:
+                    bar = self.browser.verticalScrollBar()
+                    bar.setValue(round(bar.maximum() * fraction))
+            except RuntimeError:
+                pass  # The tab was closed before the queued restore ran.
+
+        QTimer.singleShot(0, apply_position)
+
+    def source_line(self) -> int:
+        return (self._formatted_source_line if self.formatted
+                else self.textCursor().blockNumber() + 1)
 
     def setFocus(self, *args):
         if getattr(self, "formatted", False):
@@ -1562,6 +1589,8 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _reader_location(reader):
+        if isinstance(reader, MarkdownReader):
+            return reader.source_line(), None
         if isinstance(reader, TextReader):
             return reader.textCursor().blockNumber() + 1, None
         if isinstance(reader, PdfReader):
@@ -1745,7 +1774,6 @@ class MainWindow(QMainWindow):
                 if isinstance(reader, MarkdownReader):
                     reader.set_formatted(self.markdown_formatted and not line)
                     reader.link_activated.connect(lambda url, source=path: self.open_markdown_link(source, url))
-                    reader.source_requested.connect(lambda: self.markdown_action.setChecked(False))
                 if self.reader_font_size != 14:
                     if isinstance(reader, MarkdownReader):
                         reader.set_reader_font_size(self.reader_font_size)
@@ -1770,8 +1798,13 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(reader)
         self.current_path = path
         saved_line, saved_page = position_for(path) if not existing and not line and page is None else (1, None)
-        if isinstance(reader, MarkdownReader) and (line or (not existing and saved_line > 1)):
-            reader.jump(min(line or saved_line, reader.blockCount()))
+        if isinstance(reader, MarkdownReader) and line:
+            reader.jump(min(line, reader.blockCount()))
+        elif isinstance(reader, MarkdownReader) and not existing and saved_line > 1:
+            if reader.formatted:
+                reader.restore_formatted_position(saved_line)
+            else:
+                reader.jump(min(saved_line, reader.blockCount()))
         elif isinstance(reader, TextReader) and not isinstance(reader, MarkdownReader) and (line or not existing):
             reader.jump(min(line or saved_line, reader.blockCount()))
         if isinstance(reader, PdfReader) and (page or (not existing and saved_page)):
@@ -1874,7 +1907,11 @@ class MainWindow(QMainWindow):
         if not hasattr(reader, "path"):
             return
         try:
-            if isinstance(reader, TextReader):
+            if isinstance(reader, MarkdownReader):
+                line = reader.source_line()
+                quote = reader.document().findBlockByNumber(line - 1).text()
+                save_position(reader.path, line=line, quote=quote)
+            elif isinstance(reader, TextReader):
                 cursor = reader.textCursor()
                 save_position(reader.path, line=cursor.blockNumber() + 1,
                               quote=cursor.block().text())

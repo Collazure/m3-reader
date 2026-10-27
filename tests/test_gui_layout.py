@@ -477,6 +477,30 @@ def test_markdown_render_source_and_font_command(app, tmp_path, monkeypatch):
         window.close()
 
 
+def test_markdown_resume_and_line_jump_keep_render_default(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(reading, "READING_FILE", tmp_path / "reading.json")
+    path = RESOURCES_DIR / "README.md"
+    reading.save_position(path, line=3)
+    window = MainWindow()
+    try:
+        window.open_resource(path)
+        app.processEvents()
+        reader = window.tabs.currentWidget()
+        assert isinstance(reader, MarkdownReader)
+        assert reader.formatted
+        assert window.markdown_action.isChecked()
+
+        reader.jump(2)  # A precise line target needs the source view only here.
+        assert not reader.formatted
+        assert window.markdown_action.isChecked()
+        window.close_tab(window.tabs.currentIndex())
+        window.open_resource(path)
+        app.processEvents()
+        assert window.tabs.currentWidget().formatted
+    finally:
+        window.close()
+
+
 def test_directory_index_and_optional_command_bar(app, tmp_path, monkeypatch):
     monkeypatch.setattr(reading, "READING_FILE", tmp_path / "reading.json")
     window = MainWindow()
