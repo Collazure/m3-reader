@@ -2,7 +2,7 @@
 
 重复发布可使用 scripts/release.py：Windows 本机执行 build；CI 完成后用 ci-status 查询双端构建，再用 sync-ubuntu 从已下载的 Ubuntu 产物 ZIP 同步，并运行 verify --complete。项目内发布流程保存在 .agents/skills/m3-reader-release/SKILL.md。
 
-新版本在 Windows 和 Linux 分别构建；安装包不包含采集结果、OCR、手动资料、阅读位置或更新意见。当前源码版本为 2.10.5。Windows 向导已在本机生成；Linux 2.10.5 独立包待 Ubuntu CI 构建并按校验清单同步到本机。新包成功生成后打包脚本会移除同平台旧归档。
+新版本在 Windows 和 Linux 分别构建；安装包不包含采集结果、OCR、手动资料、阅读位置或更新意见。当前源码版本为 2.10.5。Windows 向导已在本机生成；Ubuntu 2.10.5 独立包由 CI 构建，已按 GitHub ZIP 摘要与包内清单校验并同步到本机。新包成功生成后打包脚本会移除同平台旧归档。
 
 | 平台 | 安装包 | 安装和升级 |
 | --- | --- | --- |
