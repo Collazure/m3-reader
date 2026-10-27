@@ -28,6 +28,7 @@ jobs:
           ./scripts/build_windows.ps1
           & bin/windows/m3-reader.exe --version
           python scripts/package_installpacks.py --platform windows
+          python scripts/release.py verify
           $setup = Get-ChildItem installpacks/windows/*-setup.exe | Select-Object -First 1
           $installRoot = Join-Path $env:RUNNER_TEMP 'M3 Reader Upgrade Test'
           $resource = Join-Path $installRoot 'resources\local\keep.txt'
@@ -97,6 +98,7 @@ jobs:
         run: |
           bash scripts/build_ubuntu.sh
           python scripts/package_installpacks.py --platform ubuntu
+          python scripts/release.py verify
           dpkg-deb -I installpacks/debian/m3-reader_*_amd64.deb
           bin/ubuntu/m3-reader --version
           status=0
