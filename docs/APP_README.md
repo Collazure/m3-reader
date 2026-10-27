@@ -1,6 +1,6 @@
 # 资料终端：GUI 与 TUI
 
-源码版本：2.10.4。首次启动 GUI 时自动使用默认 `resources` 目录；源码和便携版默认位于程序目录内，`.deb` 版默认位于当前用户的 `~/.local/share/m3-reader/resources/`。自定义目录可在安装向导或 GUI「导入 → resources 目录」设置。`.deb` 可用 `M3_READER_HOME` 指定用户数据根。
+源码版本：2.10.5。首次启动 GUI 时自动使用默认 `resources` 目录；源码和便携版默认位于程序目录内，`.deb` 版默认位于当前用户的 `~/.local/share/m3-reader/resources/`。自定义目录可在安装向导或 GUI「导入 → resources 目录」设置。`.deb` 可用 `M3_READER_HOME` 指定用户数据根。
 如通过非编辑模式安装，将 `M3_READER_HOME` 设为包含 `resources/` 的项目目录。
 
 ## 安装与启动
@@ -158,7 +158,7 @@ TUI 顶部直接显示资源目录和「阅读区」两个面板，不再额外�
 - TUI 的 `back` 对已打开文档保存路径与行号，返回时从磁盘重开，不长期保留多份全文。
 - 构建脚本排除未使用的 Qt3D / Quick / WebEngine / Multimedia 等模块，Ubuntu 版使用
   `--strip`；需重新构建才能得到更小的可执行文件。TUI 的 `search --scope local 关键词` 可限定来源（all、collected、
-local、ocr）；`markdown source|render` 可切换 Markdown 源码与保留行号的终端排版。
+local、ocr）；`markdown source|render` 可切换 Markdown 源码与表格按阅读区宽度对齐、折行的终端排版；折行后的屏幕行仍可跳回原文行号。
 `font size N`、`font reader N`、`font menu N` 会提示在终端程序里调整字号；
 终端字体不受 TUI 控制。
 

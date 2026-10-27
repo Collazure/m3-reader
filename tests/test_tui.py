@@ -97,6 +97,18 @@ def test_markdown_opens_rendered_by_default(tui):
     assert tui.markdown_formatted
     assert tui._source_text.startswith("# 资源目录")
     assert tui.reader.text.startswith("▸ 资源目录")
+
+
+def test_find_locates_text_wrapped_inside_markdown_table(tui):
+    path = RESOURCES_DIR / "README.md"
+    tui._open(path)
+    term = "resources/collected/prts_text/"
+    assert term not in tui.reader.text  # The narrow table wraps this cell.
+    tui._find(term)
+    source_line = next(index for index, line in enumerate(tui._source_text.splitlines(), 1)
+                       if term in line)
+    assert tui._source_line_at_cursor() == source_line
+    assert tui.last_find == term
     assert not hasattr(tui, "heading")
 
 

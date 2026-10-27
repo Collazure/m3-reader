@@ -17,7 +17,7 @@ from .jobs import update_arguments
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, SEARCH_SCOPES, TEXT_SUFFIXES, append_opinion, display_part, display_resource_id,
                       directory_index, parse_search_request, read_opinions, relative_id, resource_files, resource_path, search_text,
                       source_kind)
-from .markdown import render_terminal_markdown
+from .markdown import render_terminal_markdown_with_map
 from .paths import BOOK_TEXT_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, TERRA_OCR_DIR, crawler_command
 from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
@@ -375,6 +375,8 @@ class TerminalLibrary:
         self.view_kind = "static"
         self.markdown_formatted = True
         self._source_text = ""
+        self._source_line_map: list[int] = []
+        self._markdown_find_fresh = False
         self.update_task = None
         self.update_active = False
         self.update_cancelled = False
@@ -486,14 +488,19 @@ class TerminalLibrary:
             self._update_result_status()
             return
         document = self.reader.buffer.document
+        markdown = self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md"
+        current = self._source_line_at_cursor() if markdown else document.cursor_position_row + 1
+        total = (len(self._source_text.splitlines()) or 1) if markdown else document.line_count
         self._set_status(
-            f"第 {document.cursor_position_row + 1} / {document.line_count} 行 · "
+            f"第 {current} / {total} 行 · "
             "hjkl 移动 · gg/G 首尾 · 3G 指定行 · n/N 下一个匹配", "status.info")
 
     def _vim_goto_line(self, line: int) -> None:
-        total = self.reader.buffer.document.line_count
+        markdown = self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md"
+        total = ((len(self._source_text.splitlines()) or 1) if markdown
+                 else self.reader.buffer.document.line_count)
         line = max(1, min(int(line), total))
-        self._jump_buffer(self.reader, line)
+        self._jump_buffer(self.reader, self._display_line_for_source(line) if markdown else line)
         if self.results_mode:
             self._update_result_status()
         else:
@@ -506,6 +513,28 @@ class TerminalLibrary:
             return
         if not self.viewing_resource:
             self._set_status("请先打开文档，再用 n/N 跳转", "status.warn")
+            return
+        if self.selected and self.selected.suffix.lower() == ".md" and self.markdown_formatted:
+            needle = term.casefold()
+            matches = [number for number, line in enumerate(self._source_text.splitlines(), 1)
+                       if needle in line.casefold()]
+            if not matches:
+                self._set_status(f"没有匹配：{term}", "status.warn")
+                return
+            current = self._source_line_at_cursor()
+            if backwards:
+                candidates = ([line for line in matches if line <= current]
+                              if self._markdown_find_fresh else
+                              [line for line in matches if line < current])
+                line = candidates[-1] if candidates else matches[-1]
+            else:
+                candidates = ([line for line in matches if line >= current]
+                              if self._markdown_find_fresh else
+                              [line for line in matches if line > current])
+                line = candidates[0] if candidates else matches[0]
+            self._markdown_find_fresh = False
+            self._jump_buffer(self.reader, self._display_line_for_source(line))
+            self._set_status(f"匹配 · 原文第 {line} 行 · {term}", "status.ok")
             return
         text = self.reader.text
         haystack = text.casefold()
@@ -662,6 +691,7 @@ class TerminalLibrary:
         self.results_mode = False
         self.results = []
         self.result_rows = []
+        self._source_line_map = []
         self.reader.text = body
         self.reader.buffer.cursor_position = 0
         self._set_status(title, level)
@@ -672,7 +702,9 @@ class TerminalLibrary:
     # -------------------------------------------------------------- 页面历史
     def _snapshot_view(self) -> dict:
         view = {
-            "line": self.reader.buffer.document.cursor_position_row + 1,
+            "line": (self._source_line_at_cursor()
+                     if self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md"
+                     else self.reader.buffer.document.cursor_position_row + 1),
             "selected": self.selected,
             "current_pdf_page": self.current_pdf_page,
             "viewing_resource": self.viewing_resource,
@@ -720,6 +752,7 @@ class TerminalLibrary:
             return
         self.view_kind = view.get("view_kind", "static")
         self.viewing_resource = False
+        self._source_line_map = []
         self.reader.text = view["text"]
         self.selected = view["selected"]
         self.current_pdf_page = view["current_pdf_page"]
@@ -945,6 +978,33 @@ class TerminalLibrary:
         line = max(1, min(line, area.buffer.document.line_count))
         area.buffer.cursor_position = area.buffer.document.translate_row_col_to_index(line - 1, 0)
 
+    def _markdown_width(self) -> int:
+        try:
+            columns = self.app.output.get_size().columns
+        except (AttributeError, OSError):
+            columns = shutil.get_terminal_size((120, 40)).columns
+        return max(32, columns - 38)
+
+    def _source_line_at_cursor(self) -> int:
+        row = self.reader.buffer.document.cursor_position_row
+        if self._source_line_map:
+            return self._source_line_map[min(row, len(self._source_line_map) - 1)]
+        return row + 1
+
+    def _display_line_for_source(self, line: int) -> int:
+        if self._source_line_map:
+            return next((index for index, source in enumerate(self._source_line_map, 1)
+                         if source >= line), len(self._source_line_map))
+        return line
+
+    def _display_markdown(self) -> None:
+        if self.markdown_formatted:
+            self.reader.text, self._source_line_map = render_terminal_markdown_with_map(
+                self._source_text, table_width=self._markdown_width())
+        else:
+            self.reader.text = self._source_text
+            self._source_line_map = []
+
     # -------------------------------------------------------------- 打开资源
     def _open(self, path: Path, line: int | None = None, *, remember: bool = True):
         self._save_reading()
@@ -960,14 +1020,17 @@ class TerminalLibrary:
         if path.suffix.lower() in TEXT_SUFFIXES:
             self.view_kind = "text"
             self._source_text = path.read_text(encoding="utf-8", errors="replace")
-            self.reader.text = (render_terminal_markdown(self._source_text)
-                                if path.suffix.lower() == ".md" and self.markdown_formatted
-                                else self._source_text)
-            total = self.reader.buffer.document.line_count
+            if path.suffix.lower() == ".md":
+                self._display_markdown()
+            else:
+                self.reader.text = self._source_text
+                self._source_line_map = []
+            total = len(self._source_text.splitlines()) or 1
             line = max(1, min(line, total))
-            self._jump_buffer(self.reader, line)
+            self._jump_buffer(self.reader, self._display_line_for_source(line))
             self._set_status(f"{kind} · {resource_id} · 第 {line} / {total} 行", "status.info")
         elif path.suffix.lower() in IMAGE_SUFFIXES:
+            self._source_line_map = []
             self.view_kind = "image"
             parts = path.relative_to(RESOURCES_DIR).parts
             ocr = TERRA_OCR_DIR / parts[-3] / (parts[-2] + ".md") if len(parts) >= 4 and parts[0] == "collected" else None
@@ -976,6 +1039,7 @@ class TerminalLibrary:
                 body += f"\n关联 OCR：{relative_id(ocr)}\n\n" + ocr.read_text(encoding="utf-8", errors="replace")
             self._show(f"{kind} · {resource_id}", body, remember=False)
         elif path.suffix.lower() in PDF_SUFFIXES:
+            self._source_line_map = []
             self.view_kind = "pdf"
             self._show(f"{kind} · {resource_id}",
                        f"PDF：{resource_id}\n\n输入 page 页号 阅读对应页 OCR；输入 open 使用系统查看器查看原件。",
@@ -1133,19 +1197,24 @@ class TerminalLibrary:
         path = self.selected
         if not self.viewing_resource or not path or path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
             raise ValueError("请先打开一个文本文件再使用 find")
-        if term.casefold() not in self.reader.text.casefold():
+        search_text = (self._source_text if path.suffix.lower() == ".md" and self.markdown_formatted
+                       else self.reader.text)
+        if term.casefold() not in search_text.casefold():
             self._set_status(f"文件内没有匹配：{term}", "status.warn")
             return
         self.last_find = term
+        self._markdown_find_fresh = True
         self._vim_find_next(False)
         self.app.layout.focus(self.reader)
 
     def _jump(self, rest: str):
         if not self.reader.text.strip():
             raise ValueError("当前没有可跳转的文本")
-        total = self.reader.buffer.document.line_count
+        total = (len(self._source_text.splitlines()) or 1
+                 if self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md"
+                 else self.reader.buffer.document.line_count)
         line = parse_index(rest, "行号", total)
-        self._jump_buffer(self.reader, line)
+        self._jump_buffer(self.reader, self._display_line_for_source(line))
         self.app.layout.focus(self.reader)
         self._set_status(f"已跳到第 {line} / {total} 行", "status.ok")
 
@@ -1234,7 +1303,7 @@ class TerminalLibrary:
             return
         try:
             if self.selected.suffix.lower() in TEXT_SUFFIXES:
-                row = self.reader.buffer.document.cursor_position_row
+                row = self._source_line_at_cursor() - 1
                 source_lines = self._source_text.splitlines()
                 save_position(self.selected,
                               line=row + 1,
@@ -1253,10 +1322,9 @@ class TerminalLibrary:
             raise ValueError("用法：markdown source 或 markdown render")
         self.markdown_formatted = mode == "render"
         if self.viewing_resource and self.selected and self.selected.suffix.lower() == ".md":
-            line = self.reader.buffer.document.cursor_position_row + 1
-            self.reader.text = (render_terminal_markdown(self._source_text)
-                                if self.markdown_formatted else self._source_text)
-            self._jump_buffer(self.reader, line)
+            line = self._source_line_at_cursor()
+            self._display_markdown()
+            self._jump_buffer(self.reader, self._display_line_for_source(line))
         self._set_status(f"Markdown：{'终端排版' if self.markdown_formatted else '源码'}", "status.ok")
 
     def _open_selected_result(self) -> None:
