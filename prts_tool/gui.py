@@ -893,6 +893,7 @@ class MainWindow(QMainWindow):
         self.make_notes_dock()
         self.make_jobs_dock()
         self.make_command_dock()
+        self.make_focus_shortcuts()
         self.reload_tree()
         self.reload_history()
         self.reload_opinions()
@@ -1099,28 +1100,17 @@ class MainWindow(QMainWindow):
         search_split.addWidget(self.search_results)
         filters = QWidget()
         filters_layout = QVBoxLayout(filters)
-        filters_layout.addWidget(QLabel("标签筛选  ·  ＋包含 / －排除"))
+        filters_layout.addWidget(QLabel("标签筛选 · 点击整行包含"))
         self.tag_buttons = {}
-        self.tag_labels = {}
         for tag in SEARCH_TAGS:
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(2, 1, 2, 1)
-            label = QLabel(tag)
-            label.setStyleSheet("color: #8cd0d3" if tag in {"下载", "本地", "当前目录"} else "color: #cce08c")
-            row_layout.addWidget(label, 1)
-            yes = QPushButton("＋")
-            no = QPushButton("－")
-            for button in (yes, no):
-                button.setCheckable(True)
-                button.setFixedWidth(32)
-                row_layout.addWidget(button)
-            yes.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, True, checked))
-            no.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, False, checked))
-            self.tag_buttons[tag] = (yes, no)
-            self.tag_labels[tag] = label
+            button = QPushButton(tag)
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(f"点击包含「{tag}」；再次点击取消限定")
+            button.toggled.connect(lambda checked, t=tag: self.set_search_tag(t, checked))
+            self.tag_buttons[tag] = button
             self.paint_search_tag(tag)
-            filters_layout.addWidget(row)
+            filters_layout.addWidget(button)
         filters_layout.addStretch(1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1187,35 +1177,25 @@ class MainWindow(QMainWindow):
         self._search_pending = False
         QTimer.singleShot(0, self.global_search)
 
-    def set_search_tag(self, tag: str, positive: bool, checked: bool):
-        yes, no = self.tag_buttons[tag]
-        opposite = no if positive else yes
-        if checked and opposite.isChecked():
-            with QSignalBlocker(opposite):
-                opposite.setChecked(False)
+    def set_search_tag(self, tag: str, checked: bool):
         self.paint_search_tag(tag)
-        if self.global_input.text().strip() and not (self.search_worker and self.search_worker.isRunning()):
-            self.global_search()
+        if self.global_input.text().strip():
+            if self.search_worker and self.search_worker.isRunning():
+                self._search_pending = True
+            else:
+                self.global_search()
 
     def paint_search_tag(self, tag: str):
-        yes, no = self.tag_buttons[tag]
-        label = self.tag_labels[tag]
+        button = self.tag_buttons[tag]
         colors = THEME_COLORS[self.theme_id]
-        label_color = colors["accent2"] if tag in {"下载", "本地", "当前目录"} else colors["accent"]
-        if yes.isChecked():
-            label_color = "#a9e8b5"
-        elif no.isChecked():
-            label_color = "#efadad"
-        label.setStyleSheet(f"color: {label_color}")
-        for button, active, background, foreground, border in (
-            (yes, yes.isChecked(), "#315b46", "#c9f5cf", "#77c58a"),
-            (no, no.isChecked(), "#664042", "#ffe1d8", "#d98f8c")):
-            button.setStyleSheet(
-                f"background-color: {background if active else colors['button']}; "
-                f"color: {foreground if active else colors['muted']}; "
-                f"border: 1px solid {border if active else colors['border']}; "
-                "border-radius: 7px; padding: 5px 8px; font-weight: bold;"
-            )
+        active = button.isChecked()
+        foreground = "#d7f5d8" if active else (colors["accent2"] if tag in {"下载", "本地", "当前目录"} else colors["accent"])
+        button.setStyleSheet(
+            f"background-color: {colors['selected'] if active else colors['button']}; "
+            f"color: {foreground}; "
+            f"border: 1px solid {colors['accent2'] if active else colors['border']}; "
+            "border-radius: 7px; padding: 5px 10px; text-align: left; font-weight: bold;"
+        )
 
     def make_history_dock(self):
         self.history_tree = QTreeWidget()
@@ -1427,6 +1407,27 @@ class MainWindow(QMainWindow):
         self.command_dock = self._dock("命令 · Ctrl+L 隐藏", panel, Qt.DockWidgetArea.BottomDockWidgetArea)
         self.command_dock.hide()
         self.command_dock.visibilityChanged.connect(self.command_action.setChecked)
+
+    def make_focus_shortcuts(self):
+        for number, target in ((1, self.tree), (2, self.tabs), (3, self.command_input)):
+            action = QAction(f"焦点切换 Alt+{number}", self)
+            action.setShortcut(f"Alt+{number}")
+            action.triggered.connect(lambda checked=False, n=number: self.focus_pane(n))
+            self.addAction(action)
+
+    def focus_pane(self, number: int):
+        if number == 1:
+            self.tree.setFocus()
+        elif number == 2:
+            reader = self.tabs.currentWidget()
+            if reader is self.search_panel:
+                self.search_results.setFocus()
+            elif isinstance(reader, MarkdownReader) and reader.formatted:
+                reader.browser.setFocus()
+            elif reader is not None:
+                reader.setFocus()
+        elif number == 3:
+            self.set_command_visible(True)
 
     def set_command_visible(self, visible: bool):
         self.command_dock.setVisible(visible)
@@ -1925,6 +1926,12 @@ class MainWindow(QMainWindow):
     def find_next(self):
         reader = self.tabs.currentWidget()
         term = self.find_input.text()
+        if reader is self.search_panel and term:
+            if not self.search_results.find(term):
+                self.search_results.moveCursor(QTextCursor.MoveOperation.Start)
+                self.search_results.find(term)
+            self.search_results.setFocus()
+            return
         if isinstance(reader, TextReader) and term:
             if not reader.find(term):
                 reader.moveCursor(QTextCursor.MoveOperation.Start)
@@ -1942,14 +1949,13 @@ class MainWindow(QMainWindow):
             self.tabs.addTab(self.search_panel, "检索结果")
         self.tabs.setTabText(self.tabs.indexOf(self.search_panel), "检索中…")
         self.tabs.setCurrentWidget(self.search_panel)
-        include = {tag for tag, (yes, _) in self.tag_buttons.items() if yes.isChecked()}
-        exclude = {tag for tag, (_, no) in self.tag_buttons.items() if no.isChecked()}
+        include = {tag for tag, button in self.tag_buttons.items() if button.isChecked()}
         current_dir = relative_id(self.search_context_path.parent) if getattr(self, "search_context_path", None) else None
         formats = self.selected_search_formats()
         if not formats:
             self.statusBar().showMessage("请至少勾选一种文件格式（格式菜单在搜索框右侧）")
             return
-        self.search_worker = SearchThread(term, scope, include, exclude, current_dir, formats)
+        self.search_worker = SearchThread(term, scope, include, set(), current_dir, formats)
         self.search_worker.ready.connect(self.show_hits)
         self.search_worker.finished.connect(self._search_worker_finished)
         self.search_worker.start()

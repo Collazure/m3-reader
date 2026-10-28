@@ -69,3 +69,17 @@ def test_nested_search_tags_and_exclusion(tmp_path, monkeypatch):
     hits = library.search_text("匹配", include_tags={"当前目录"},
                                current_directory="collected/prts_text/avg/特殊")
     assert {hit.resource_id for hit in hits} == {"collected/prts_text/avg/特殊/四月辑录/sample.txt"}
+
+
+def test_operator_tag_covers_operator_directory(tmp_path, monkeypatch):
+    root = tmp_path / "resources"
+    operator = root / "collected/prts_text/operator/阿米娅"
+    main = root / "collected/prts_text/avg/主线"
+    for folder in (operator, main):
+        folder.mkdir(parents=True)
+        (folder / "sample.txt").write_text("匹配\n", encoding="utf-8")
+    monkeypatch.setattr(library, "RESOURCES_DIR", root)
+    assert "干员" in library.SEARCH_TAGS
+    assert "干员" in library.resource_tags("collected/prts_text/operator/阿米娅/sample.txt")
+    hits = library.search_text("匹配", include_tags={"干员"})
+    assert {hit.resource_id for hit in hits} == {"collected/prts_text/operator/阿米娅/sample.txt"}

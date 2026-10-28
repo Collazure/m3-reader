@@ -1,6 +1,6 @@
 # 已知信息与待验证事项
 
-文档版本：1.6；最近核实：2026-10-26。
+文档版本：1.7；最近核实：2026-10-28。
 维护规则：记录证据位置和核实日期；实现后更新状态，区分现状、设计和待验证事项。
 
 ## 已核实事实
@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前源码版本为 2.10.5；TUI Markdown 表格按宽度排版、折行并映射原文行号 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、markdown.py、tui.py；2026-10-27 |
+| K02 | 当前源码版本为 2.10.6；GUI 检索与焦点操作完成本地意见中的三项调整 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、library.py；2026-10-28 |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -45,12 +45,12 @@
 | K36 | 参考工程建议改进信息层级与检索；2.8.0 采用按文件归组、文件名优先、来源范围和树筛选 | reference/ArkPlots参考价值分析-m3-reader.md、WikiTransporter参考价值分析-m3-reader.md；prts_tool/library.py、gui.py、tui.py |
 | K37 | GUI `font size N` 调整阅读字号；TUI 字号由所在终端控制，prompt_toolkit 无跨终端字体设置接口 | prts_tool/gui.py、tui.py；2026-10-26 |
 | K38 | 资源树以中文显示内部采集模块；AVG 旧目录自动迁移，主线 0–9 章补零，四月辑录和特殊活动归入「特殊」；CLI 模块名仍保持兼容 | prts_tool/library.py、story_layout.py、collectors/avg.py；2026-10-26 |
-| K39 | GUI 全库检索为阅读标签页，右侧标签支持包含与排除；当前目录依阅读位置确定，命中保持原文行号 | prts_tool/gui.py、library.py；2026-10-26 |
+| K39 | GUI 全库检索为阅读标签页，右侧整行按钮按下时包含该类、未按下时不限定；干员标签匹配 operator 目录；当前目录依阅读位置确定，命中保持原文行号 | prts_tool/gui.py、library.py；2026-10-28 |
 | K40 | GUI 任务栏和阅读字号独立；TUI 无权更改终端字体。`find` 在原文中定位；TUI Markdown 宽表格可折行，每个屏幕行映射回原文行号 | prts_tool/gui.py、tui.py、markdown.py；2026-10-27 |
 | K41 | GitHub Actions 首次 Ubuntu 任务在导入 PySide6 时缺少 `libEGL.so.1`；工作流已增加 Qt 运行库安装步骤 | .github/workflows/build.yml；2026-10-26 |
 | K42 | 检索命中改为可换行的富文本两行卡片；统计放标签/状态栏；普通命中只打开原文，PDF 显式选择；Markdown 定位按需渲染 | prts_tool/gui.py；2026-10-26 |
 | K43 | Ubuntu CI 曾因 build_ubuntu.sh 中混入 CRLF 在打包末尾失败；.gitattributes 固定 shell 脚本 LF | .gitattributes、scripts/build_ubuntu.sh；2026-10-26 |
-| K44 | GUI 全局检索的文件格式筛选为可多选勾选菜单（复选框）；文本默认开启，PDF/图片默认关闭且仅按文件名匹配；右侧标签用绿/暖红区分包含/排除 | prts_tool/gui.py、prts_tool/library.py；2026-10-26 |
+| K44 | GUI 全局检索的文件格式筛选为可多选勾选菜单（复选框）；文本默认开启，PDF/图片默认关闭且仅按文件名匹配；检索结果支持 find 二次定位，Alt+1/2/3 切换目录/阅读或检索结果/命令焦点 | prts_tool/gui.py、prts_tool/library.py；2026-10-28 |
 | K45 | Qt 全局样式中的固定字号导致任务栏字号不一致；菜单与搜索区分行，放大时搜索控件再分两行 | prts_tool/gui.py；2026-10-26 |
 | K46 | 轻量化：GUI 树按需展开、图片标签释放非活动 pixmap、大地巡旅 PDF 用页面图；TUI back 按路径重开；构建排除未用 Qt 模块 | prts_tool/gui.py、tui.py、scripts/build_*；实测启动 125→114 MB、5 图 203→131 MB、巡旅 PDF 525→127 MB、搜索后 241→159 MB |
 | K47 | 更新历史仅把运行前快照写入临时磁盘数据库，结束时逐文件比较并清理；pytest 只收集项目测试 | prts_tool/history.py、jobs.py、pyproject.toml、tests/test_library_history.py；本机 5145 文件无变化对比，峰值约 84→35 MiB、耗时 0.91→1.12 秒；共用代码覆盖 Windows/Linux，跨平台 CI 已加入测试；2026-10-26 |

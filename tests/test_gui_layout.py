@@ -356,18 +356,16 @@ def test_search_tab_tags_and_independent_font_commands(app):
         window.global_search()
         assert window.search_worker.formats == {".md", ".pdf", ".png"}
         window.search_worker.wait(30000)
-        yes, no = window.tag_buttons["特殊"]
-        yes.setChecked(True)
-        assert yes.isChecked() and not no.isChecked()
-        assert "#315b46" in yes.styleSheet()
-        assert "#a9e8b5" in window.tag_labels["特殊"].styleSheet()
-        no.setChecked(True)
-        assert no.isChecked() and not yes.isChecked()
-        assert "#664042" in no.styleSheet()
-        assert "#efadad" in window.tag_labels["特殊"].styleSheet()
-        no.setChecked(False)
-        assert THEME_COLORS[window.theme_id]["button"] in no.styleSheet()
-        assert THEME_COLORS[window.theme_id]["accent"] in window.tag_labels["特殊"].styleSheet()
+        tag = window.tag_buttons["特殊"]
+        assert "干员" in window.tag_buttons
+        tag.setChecked(True)
+        assert tag.isChecked()
+        assert THEME_COLORS[window.theme_id]["selected"] in tag.styleSheet()
+        if window.search_worker and window.search_worker.isRunning():
+            window.search_worker.wait(30000)
+            app.processEvents()
+        tag.setChecked(False)
+        assert THEME_COLORS[window.theme_id]["button"] in tag.styleSheet()
         window.command_input.setText("font menu 16")
         window.execute_gui_command()
         assert window.menu_font_size == 16
@@ -390,6 +388,31 @@ def test_search_tab_tags_and_independent_font_commands(app):
     finally:
         if window.search_worker and window.search_worker.isRunning():
             window.search_worker.wait(30000)
+        window.close()
+
+
+def test_find_within_search_results_and_alt_focus(app):
+    window = MainWindow()
+    try:
+        window.show()
+        app.processEvents()
+        window.show_hits([SearchHit("local/a.md", 3, "独特的检索结果")])
+        window.tabs.addTab(window.search_panel, "检索结果")
+        window.tabs.setCurrentWidget(window.search_panel)
+        window.find_input.setText("独特的检索结果")
+        window.find_next()
+        assert window.search_results.textCursor().selectedText() == "独特的检索结果"
+        window.command_input.setText("find 独特的检索结果")
+        window.execute_gui_command()
+        assert window.search_results.textCursor().selectedText() == "独特的检索结果"
+        window.focus_pane(1)
+        assert app.focusWidget() is window.tree
+        window.focus_pane(2)
+        assert app.focusWidget() is window.search_results
+        window.focus_pane(3)
+        assert app.focusWidget() is window.command_input
+        assert window.command_dock.isVisible()
+    finally:
         window.close()
 
 
