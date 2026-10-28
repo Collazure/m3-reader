@@ -15,6 +15,8 @@ THEME_NAMES = {
     "soft": "柔亮",
     "ocean": "深海蓝",
     "warm": "暖棕",
+    "violet": "夜紫",
+    "ember": "赤铜",
 }
 
 

@@ -83,3 +83,8 @@ def test_operator_tag_covers_operator_directory(tmp_path, monkeypatch):
     assert "干员" in library.resource_tags("collected/prts_text/operator/阿米娅/sample.txt")
     hits = library.search_text("匹配", include_tags={"干员"})
     assert {hit.resource_id for hit in hits} == {"collected/prts_text/operator/阿米娅/sample.txt"}
+
+
+def test_external_story_tags():
+    assert "解谜档案" in library.resource_tags("collected/prts_text/外部剧情/解谜档案/PV4解谜.txt")
+    assert "世界观文本" in library.resource_tags("collected/prts_text/外部剧情/世界观文本/记录者的故事.txt")

@@ -77,16 +77,37 @@ def parse_paradox(raw: str) -> tuple[str, str]:
     return "", ""
 
 
+def parse_voice_records(raw: str, title: str) -> str:
+    """Extract spoken text from VoiceTable, keeping each available language."""
+    blocks = []
+    for table in template_params(raw, "VoiceTable"):
+        numbers = sorted({int(match.group(1)) for key in table
+                          if (match := re.fullmatch(r"标题(\d+)", key))})
+        for number in numbers:
+            lines = []
+            for word in template_params(table.get(f"台词{number}", ""), "VoiceData/word"):
+                language = word.get("1", "").strip()
+                speech = plain_text(word.get("2", ""))
+                if speech:
+                    lines.append(f"{language or '文本'}：{speech}")
+            if lines:
+                heading = table.get(f"标题{number}", f"语音{number}").strip()
+                condition = plain_text(table.get(f"条件{number}", ""))
+                blocks.append("\n".join([f"【{heading}】" + (f"（{condition}）" if condition else ""), *lines]))
+    return f"{title} 语音记录\n\n" + "\n\n".join(blocks) + "\n" if blocks else ""
+
+
 # --------------------------------------------------------------------- 采集器
 
 @register
 class OperatorCollector(Collector):
     name = "operator"
-    title = "干员：档案 / 模组故事 / 干员密录(avg) / 悖论模拟"
+    title = "干员：档案 / 语音 / 模组故事 / 干员密录(avg) / 悖论模拟"
     help = """按干员建文件夹，抓取四类文本：
 
 \b
     OUT/operator/<干员名>/干员档案.txt        ← ==干员档案== 的全部 {{人员档案}} 段落
+    OUT/operator/<干员名>/语音记录.txt        ← 独立语音记录页的多语言台词
     OUT/operator/<干员名>/模组1-<模组名>.txt   ← 模组故事（{{模组|基础信息=…}}）
     OUT/operator/<干员名>/avg1-<密录名>.txt    ← 干员密录剧情，首行是密录的前置文本
     OUT/operator/<干员名>/悖论模拟.txt         ← ==悖论模拟== 的 description
@@ -139,7 +160,8 @@ class OperatorCollector(Collector):
 
         # ------- 版本检查 -------
         ctx.log("  检查版本 …")
-        page_titles = list(operators)
+        voice_titles = [f"{name}/语音记录" for name in operators]
+        page_titles = list(operators) + voice_titles
         memory_titles = [m["page"] for rows in memories.values() for m in rows if m["page"]]
         revs = ctx.client.revids(page_titles + memory_titles)
 
@@ -148,6 +170,7 @@ class OperatorCollector(Collector):
             mem = memories.get(name, [])
             sig = signature(
                 revs.get(name).revid if revs.get(name) else 0,
+                revs.get(f"{name}/语音记录").revid if revs.get(f"{name}/语音记录") else 0,
                 *[f"{m['page']}:{revs.get(m['page']).revid if revs.get(m['page']) else 0}" for m in mem],
             )
             folder = out / sanitize(name)
@@ -172,6 +195,7 @@ class OperatorCollector(Collector):
         ctx.log(f"  需要处理 {len(todo)} 人")
         if todo:
             pages = ctx.client.pages(todo, with_content=True)
+            voice_pages = ctx.client.pages([f"{name}/语音记录" for name in todo], with_content=True)
             mem_pages = ctx.client.pages([m["page"] for n in todo for m in memories.get(n, []) if m["page"]],
                                          with_content=True)
             fetch = make_raw_fetcher(ctx)
@@ -191,6 +215,12 @@ class OperatorCollector(Collector):
                 archive = parse_archive(rec.content, name)
                 if archive:
                     put("干员档案.txt", archive)
+
+                voice_rec = voice_pages.get(f"{name}/语音记录")
+                if voice_rec and voice_rec.content:
+                    voice_text = parse_voice_records(voice_rec.content, name)
+                    if voice_text:
+                        put("语音记录.txt", voice_text)
 
                 if not ctx.extra.get("no_module"):
                     for i, (mod_name, story) in enumerate(parse_modules(rec.content), 1):
@@ -224,6 +254,7 @@ class OperatorCollector(Collector):
 
                 sig_now = signature(
                     rec.revid,
+                    voice_rec.revid if voice_rec else 0,
                     *[f"{m['page']}:{mem_pages.get(m['page']).revid if mem_pages.get(m['page']) else 0}"
                       for m in memories.get(name, [])],
                 )
@@ -252,7 +283,7 @@ class OperatorCollector(Collector):
         lines = ["# PRTS 干员文本索引", "",
                  f"生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}　|　{len(manifest.items)} 名干员", "",
                  "> 由 prts_crawler.py operator 生成。每名干员的文件夹里包含：",
-                 "> 干员档案 / 模组N-<模组名> / avgN-<密录名> / 悖论模拟", ""]
+                 "> 干员档案 / 语音记录 / 模组N-<模组名> / avgN-<密录名> / 悖论模拟", ""]
         for name in sorted(manifest.items, key=natural_key):
             info = manifest.items[name]
             files = info.get("files", [])

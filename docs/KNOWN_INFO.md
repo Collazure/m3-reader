@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前源码版本为 2.10.6；GUI 检索与焦点操作完成本地意见中的三项调整 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、library.py；2026-10-28 |
+| K02 | 当前源码版本为 2.10.7；干员语音及外部剧情解谜页面加入采集 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、collectors/operator.py、external_story.py；2026-10-28 |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |
@@ -57,6 +57,8 @@
 | K48 | 两端构建脚本先写暂存目录，构建成功后替换程序；发布脚本校验 GitHub 产物 ZIP 与包内 SHA-256 后同步 | scripts/build_windows.ps1、scripts/build_ubuntu.sh、scripts/release.py；2.10.6 Windows/Ubuntu CI 构建与测试均通过；2026-10-28 |
 | K49 | Windows 安装向导和 Linux 便携脚本支持升级并保留用户资源；`.deb` 只拥有程序文件，用户数据在个人目录 | scripts/windows_installer.iss、install_ubuntu_portable.sh、deb_launcher.sh、package_installpacks.py、tests/test_installers.py；CI 已验证 Windows 安装/升级、独立 resources 路径与 PATH，及 Ubuntu 便携重复安装和 `.deb` 解包；2026-10-26 |
 | K50 | Windows 向导添加当前用户 PATH 并在卸载时移除自己的条目；Linux 源码/便携安装幂等设置 Bash 用户命令路径 | scripts/windows_installer.iss、scripts/ensure_user_path.sh；2026-10-26 |
+| K51 | PRTS 干员语音为独立的 `<干员>/语音记录` 页面，VoiceTable 中按序号保存标题、条件和多语言 VoiceData/word 台词；阿米娅实例已抓取验证 | prts_tool/collectors/operator.py、resources/collected/prts_text/operator/阿米娅/语音记录.txt；2026-10-28 |
+| K52 | ORACLE_DATABASE 索引连到 PV1–PV4 等解谜页；九个解谜页及外部剧情资料分类中的三份世界观文本已通过 PRTS API 采集为可阅读文本，属于可采集资源，检索标签分开 | prts_tool/collectors/external_story.py、resources/collected/prts_text/外部剧情/；2026-10-28 |
 
 ## 待实现 / 待验证
 

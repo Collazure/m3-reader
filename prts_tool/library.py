@@ -99,7 +99,7 @@ SEARCH_SCOPES = {"all", "collected", "local", "ocr"}
 
 # Tags describe the resource tree. A child tag also satisfies its parent tag.
 SEARCH_TAGS = ("下载", "本地", "当前目录", "泰拉年表", "主线", "支线", "故事集",
-               "联动", "特殊", "干员", "肉鸽", "家具", "生息演算", "泰拉记事")
+               "联动", "特殊", "干员", "肉鸽", "家具", "生息演算", "泰拉记事", "解谜档案", "世界观文本")
 DISPLAY_PARTS = {"collected": "下载", "local": "本地", "ocr": "OCR 识别",
                  "prts_text": "PRTS 文本", "avg": "剧情", "activity": "活动资料",
                  "operator": "干员", "enemies": "敌人", "furniture": "家具",
@@ -133,6 +133,10 @@ def resource_tags(resource_id: str, *, current_directory: str | None = None) -> 
         tags.add("肉鸽")
     if "operator" in parts:
         tags.add("干员")
+    if "解谜档案" in parts:
+        tags.add("解谜档案")
+    if "世界观文本" in parts:
+        tags.add("世界观文本")
     if "furniture" in parts:
         tags.add("家具")
     if "reclamation" in parts:

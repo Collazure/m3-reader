@@ -52,6 +52,12 @@ THEME_COLORS = {
     "warm": dict(base="#302c29", main="#292522", panel="#3a332e", text="#e1d5c2", chrome="#fff0c4", tab_text="#f4e3ce",
                  accent="#ead4a1", accent2="#d8c2a2", border="#82715f", hover="#625142",
                  selected="#655241", button="#4c4037", muted="#b9a994", selection="#6d6055"),
+    "violet": dict(base="#252432", main="#201f2b", panel="#302e40", text="#d8d0e9", chrome="#f3defa", tab_text="#eadcf4",
+                   accent="#d9b8ef", accent2="#a8c9e7", border="#6c627f", hover="#544b70",
+                   selected="#51476b", button="#403a55", muted="#afa6c1", selection="#665789"),
+    "ember": dict(base="#302723", main="#291f1d", panel="#40302d", text="#ebd6c8", chrome="#ffe2c2", tab_text="#f6d9c9",
+                  accent="#e9b981", accent2="#ddad9e", border="#87675d", hover="#765044",
+                  selected="#72483e", button="#563b35", muted="#c1a99d", selection="#805850"),
 }
 
 _STYLE_TEMPLATE = Template("""

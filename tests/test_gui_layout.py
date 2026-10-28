@@ -87,7 +87,7 @@ def test_menus_command_bar_and_icon(app):
         assert [action.text() for action in window.view_menu.actions()] == ["自动换行", "Markdown 格式化显示"]
         assert [action.text() for action in window.appearance_menu.actions()] == ["字号", "主题"]
         assert [action.text() for action in window.font_root_menu.actions()] == ["阅读字号", "任务栏字号"]
-        assert [action.text() for action in window.theme_menu.actions()] == ["经典", "柔亮", "深海蓝", "暖棕"]
+        assert [action.text() for action in window.theme_menu.actions()] == ["经典", "柔亮", "深海蓝", "暖棕", "夜紫", "赤铜"]
         assert window.header_toolbar.actions()[-1].defaultWidget() is window.header_controls
         assert not window.windowIcon().isNull()
         assert window.command_dock.isHidden()
