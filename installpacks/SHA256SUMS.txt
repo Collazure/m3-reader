@@ -1,4 +1,4 @@
-e942ee5eab79c3ec4efcbcf5989f01b1b602aadd27e6d75d76ffc0fe88c902c8  windows/m3-reader-2.10.7-windows-x64-setup.exe
-3ee39f215a0f0fb56ec877c5a0481ba410ba25f1568a0eb09655455e5f5c93bb  debian/m3-reader-2.10.7-ubuntu-source.tar.gz
-dcc8ae81b7c0df441fc7e7d0fbf94f58a7f293f625f5ae6a0af4fd328a1f6e11  debian/m3-reader-2.10.7-ubuntu-x64-portable.tar.gz
-8f9e956ddc7398b70b535eb3c898fff8b12696fc1a5e9200212e7d4daefb0b45  debian/m3-reader_2.10.7_amd64.deb
+0589a3f7f75a7d9c1c4751e430138f25bac057d2464e6f5cc8c645342984d97f  windows/m3-reader-2.10.8-windows-x64-setup.exe
+2cb3627de35216896e85d6d6831390aa2e5df6ffab52306cb36f549611ebff4b  debian/m3-reader-2.10.8-ubuntu-source.tar.gz
+b472d778f06c9c1588e5dc145beada09a7b0a3a384b0924065f851367e4fed37  debian/m3-reader-2.10.8-ubuntu-x64-portable.tar.gz
+a3fabee66d867a59e3d916417524f44a97926f7d8fa7b2f6eac7f191a24c8433  debian/m3-reader_2.10.8_amd64.deb
