@@ -235,6 +235,8 @@ def test_search_results_in_reader_tab_with_two_line_entries(app):
         window.close_tab(window.tabs.indexOf(window.search_panel))
         assert not window.search_hits
         assert not window.search_results.toPlainText()
+        window.show_hits([SearchHit("local/late.md", 1, "迟到的后台结果")])
+        assert not window.search_results.toPlainText()
         assert "2 个文件" in window.search_summary.text()
         assert window.search_summary.isHidden()
         assert window.tabs.indexOf(window.search_panel) < 0  # the tab opens when a search starts

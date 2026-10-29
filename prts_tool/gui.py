@@ -847,6 +847,7 @@ class MainWindow(QMainWindow):
         self.search_worker: SearchThread | None = None
         self.resource_worker: ResourceThread | None = None
         self._search_pending = False
+        self._search_results_closed = False
         self.process: QProcess | None = None
         self.update_queue: list[list[str]] = []
         self.readers: dict[str, QWidget] = {}
@@ -1879,6 +1880,8 @@ class MainWindow(QMainWindow):
                 self._finish_tab_transition()
             if reader is self.search_panel:
                 self.tabs.removeTab(index)
+                self._search_results_closed = True
+                self._search_pending = False
                 self.search_results.clear()
                 self.search_hits = []
                 return
@@ -1984,6 +1987,7 @@ class MainWindow(QMainWindow):
             return
         if self.current_path:
             self.search_context_path = self.current_path
+        self._search_results_closed = False
         self.search_results.clear()
         self.search_summary.setText(f"正在检索「{term}」…")
         if self.tabs.indexOf(self.search_panel) < 0:
@@ -2004,6 +2008,8 @@ class MainWindow(QMainWindow):
         self.search_worker.start()
 
     def show_hits(self, hits):
+        if self._search_results_closed:
+            return
         self.search_hits = hits
         colors = THEME_COLORS[self.theme_id]
         rows = [f"<html><body style='color:{colors['text']};font-family:monospace'>"]
