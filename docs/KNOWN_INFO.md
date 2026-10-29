@@ -8,7 +8,8 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前源码版本为 2.10.7；干员语音及外部剧情解谜页面加入采集 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、collectors/operator.py、external_story.py；2026-10-28 |
+| K02 | 当前源码版本为 2.10.8；标签筛选增加批量操作，结果页关闭释放文档，命中记录紧凑化 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、library.py；2026-10-29 |
+| K54 | GUI “显示全部”临时忽略标签且保留已选状态，“清空已选”一次性复位；关闭检索页清空 HTML 与命中列表 | prts_tool/gui.py、tests/test_gui_layout.py；2026-10-29 |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
 | K05 | 普通 update 不下载 terra 图片，图片有 terra-images 独立命令 | README、cli.py、collectors/terra.py |

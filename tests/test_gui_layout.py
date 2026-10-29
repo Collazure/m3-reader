@@ -231,6 +231,10 @@ def test_search_results_in_reader_tab_with_two_line_entries(app):
         assert "[文件名] 文件名：a.md" in text
         assert "正文命中" in text
         assert "下载/b.txt:2" in text
+        window.tabs.addTab(window.search_panel, "检索结果")
+        window.close_tab(window.tabs.indexOf(window.search_panel))
+        assert not window.search_hits
+        assert not window.search_results.toPlainText()
         assert "2 个文件" in window.search_summary.text()
         assert window.search_summary.isHidden()
         assert window.tabs.indexOf(window.search_panel) < 0  # the tab opens when a search starts
@@ -366,6 +370,20 @@ def test_search_tab_tags_and_independent_font_commands(app):
             app.processEvents()
         tag.setChecked(False)
         assert THEME_COLORS[window.theme_id]["button"] in tag.styleSheet()
+        window.global_input.clear()
+        tag.setChecked(True)
+        window.display_all_search_tags()
+        assert window.show_all_tags and tag.isChecked()
+        assert not window.show_all_tags_button.isCheckable()
+        window.global_input.setText("不会命中的唯一词")
+        window.global_search()
+        assert not window.search_worker.include_tags
+        window.search_worker.wait(30000)
+        window.global_input.clear()
+        window.clear_search_tags()
+        assert not any(button.isChecked() for button in window.tag_buttons.values())
+        assert not window.show_all_tags
+        assert not window.clear_tags_button.isCheckable()
         window.command_input.setText("font menu 16")
         window.execute_gui_command()
         assert window.menu_font_size == 16

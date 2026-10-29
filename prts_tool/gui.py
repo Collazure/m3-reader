@@ -1106,7 +1106,19 @@ class MainWindow(QMainWindow):
         search_split.addWidget(self.search_results)
         filters = QWidget()
         filters_layout = QVBoxLayout(filters)
-        filters_layout.addWidget(QLabel("标签筛选 · 点击整行包含"))
+        self.search_tags_heading = QLabel("标签筛选 · 点击整行包含")
+        filters_layout.addWidget(self.search_tags_heading)
+        bulk_row = QHBoxLayout()
+        self.show_all_tags = False
+        self.show_all_tags_button = QPushButton("显示全部")
+        self.show_all_tags_button.setToolTip("保留当前标签选择，临时显示全部结果")
+        self.show_all_tags_button.clicked.connect(self.display_all_search_tags)
+        bulk_row.addWidget(self.show_all_tags_button)
+        self.clear_tags_button = QPushButton("清空已选")
+        self.clear_tags_button.setToolTip("一次性取消所有已选标签")
+        self.clear_tags_button.clicked.connect(self.clear_search_tags)
+        bulk_row.addWidget(self.clear_tags_button)
+        filters_layout.addLayout(bulk_row)
         self.tag_buttons = {}
         for tag in SEARCH_TAGS:
             button = QPushButton(tag)
@@ -1184,7 +1196,28 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.global_search)
 
     def set_search_tag(self, tag: str, checked: bool):
+        self.show_all_tags = False
+        self.search_tags_heading.setText("标签筛选 · 点击整行包含")
         self.paint_search_tag(tag)
+        self._refresh_tag_search()
+
+    def display_all_search_tags(self):
+        self.show_all_tags = True
+        self.search_tags_heading.setText("显示全部 · 已保留标签选择")
+        self.statusBar().showMessage("显示全部结果 · 已保留标签选择；点选标签恢复筛选")
+        self._refresh_tag_search()
+
+    def clear_search_tags(self):
+        self.show_all_tags = False
+        self.search_tags_heading.setText("标签筛选 · 点击整行包含")
+        for tag, button in self.tag_buttons.items():
+            with QSignalBlocker(button):
+                button.setChecked(False)
+            self.paint_search_tag(tag)
+        self.statusBar().showMessage("已清空标签选择")
+        self._refresh_tag_search()
+
+    def _refresh_tag_search(self):
         if self.global_input.text().strip():
             if self.search_worker and self.search_worker.isRunning():
                 self._search_pending = True
@@ -1846,6 +1879,8 @@ class MainWindow(QMainWindow):
                 self._finish_tab_transition()
             if reader is self.search_panel:
                 self.tabs.removeTab(index)
+                self.search_results.clear()
+                self.search_hits = []
                 return
             self._save_reader_position(reader)
             if hasattr(reader, "path"):
@@ -1956,6 +1991,8 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self.tabs.indexOf(self.search_panel), "检索中…")
         self.tabs.setCurrentWidget(self.search_panel)
         include = {tag for tag, button in self.tag_buttons.items() if button.isChecked()}
+        if self.show_all_tags:
+            include.clear()
         current_dir = relative_id(self.search_context_path.parent) if getattr(self, "search_context_path", None) else None
         formats = self.selected_search_formats()
         if not formats:

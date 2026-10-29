@@ -86,7 +86,7 @@ def source_kind(path: Path) -> str:
     return "本地资料"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SearchHit:
     resource_id: str
     line: int
@@ -208,8 +208,8 @@ def search_text(query: str, *, limit: int = 500, scope: str = "all",
                             page = int(line.split()[2])
                         except (IndexError, ValueError):
                             pass
-                    if term in line.casefold():
-                        offset = line.casefold().find(term)
+                    offset = line.casefold().find(term)
+                    if offset >= 0:
                         start = max(0, offset - 70)
                         excerpt = ("…" if start else "") + line[start:start + 220].strip()
                         if len(line) > start + 220:
