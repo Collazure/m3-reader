@@ -8,6 +8,7 @@ import subprocess
 import sys
 import codecs
 import html
+import json
 import tempfile
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ from .jobs import update_arguments, update_command_sequence
 from .library import (IMAGE_SUFFIXES, PDF_SUFFIXES, TEXT_SUFFIXES, directory_index, parse_search_request, read_opinions,
                       SEARCH_TAGS, display_part, display_resource_id, relative_id, resource_files, resource_path, search_text,
                       source_kind, write_opinions)
-from .paths import APP_ICON_FILE, BOOK_DIR, BOOK_IMAGE_DIR, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
+from .paths import APP_ICON_FILE, BOOK_DIR, BOOK_IMAGE_DIR, BOOKMARKS_FILE, DEFAULT_TEXT_DIR, OPINIONS_FILE, PROJECT_DIR, RESOURCES_DIR, crawler_command
 from .story_layout import migrate_story_layout
 from .reading import last_position, position_for, save_position
 from .resource_settings import import_resources, inspect_resources, move_resources, save_resources
@@ -877,6 +878,8 @@ class MainWindow(QMainWindow):
         self.tree.itemClicked.connect(self.click_tree_item)
         self.tree.itemDoubleClicked.connect(self.open_tree_item)
         self.tree.itemExpanded.connect(self._populate_tree_item)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_context_menu)
         tree_panel = QWidget()
         tree_layout = QVBoxLayout(tree_panel)
         tree_layout.setContentsMargins(4, 4, 4, 4)
@@ -1493,6 +1496,7 @@ class MainWindow(QMainWindow):
                 children = self.catalog_dirs.setdefault(parts[:index], {})
                 children[parts[index]] = path if index == len(parts) - 1 else None
         self._add_tree_level((), None)
+        self._add_bookmarks()
         if self.tree_filter.text():
             self.filter_tree(self.tree_filter.text())
 
@@ -1507,6 +1511,61 @@ class MainWindow(QMainWindow):
             parts.append(part)
             current = current.parent()
         return tuple(reversed(parts))
+
+    def _bookmarks(self) -> list[str]:
+        try:
+            value = json.loads(BOOKMARKS_FILE.read_text(encoding="utf-8"))
+            return [entry for entry in value if isinstance(entry, str)] if isinstance(value, list) else []
+        except (OSError, ValueError):
+            return []
+
+    def _save_bookmarks(self, entries: list[str]):
+        BOOKMARKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = BOOKMARKS_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(BOOKMARKS_FILE)
+
+    def _add_bookmarks(self):
+        entries = self._bookmarks()
+        if not entries:
+            return
+        root = QTreeWidgetItem(["★ 书签"])
+        root.setData(0, Qt.ItemDataRole.UserRole + 3, "bookmarks")
+        self.tree.insertTopLevelItem(0, root)
+        for relative in entries:
+            path = RESOURCES_DIR / relative
+            if not path.is_file():
+                continue
+            item = QTreeWidgetItem([display_part(path.name)])
+            item.setData(0, Qt.ItemDataRole.UserRole, str(path))
+            item.setData(0, Qt.ItemDataRole.UserRole + 3, relative)
+            item.setToolTip(0, relative)
+            root.addChild(item)
+        root.setExpanded(True)
+
+    def _tree_context_menu(self, position):
+        item = self.tree.itemAt(position)
+        if item is None:
+            return
+        path_text = item.data(0, Qt.ItemDataRole.UserRole)
+        if not path_text:
+            return
+        path = Path(path_text)
+        try:
+            relative = path.relative_to(RESOURCES_DIR).as_posix()
+        except ValueError:
+            return
+        entries = self._bookmarks()
+        menu = QMenu(self.tree)
+        action = menu.addAction("从书签移除" if relative in entries else "添加书签")
+        chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
+        if chosen is action:
+            if relative in entries:
+                entries.remove(relative)
+            else:
+                entries.append(relative)
+            self._save_bookmarks(entries)
+            self.reload_tree()
 
     def _add_tree_level(self, prefix: tuple[str, ...], parent: QTreeWidgetItem | None):
         children = self.catalog_dirs.get(prefix, {})

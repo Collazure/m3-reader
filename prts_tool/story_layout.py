@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from pathlib import Path
 
 
@@ -46,7 +47,17 @@ def migrate_story_layout(root: Path) -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             if target.read_bytes() != source.read_bytes():
-                raise FileExistsError(f"迁移目标已有不同内容：{target}")
+                digest = hashlib.sha256(source.read_bytes()).hexdigest()[:12]
+                conflict = root / "_migration_conflicts" / source.relative_to(root)
+                conflict = conflict.with_name(f"{conflict.stem}-{digest}{conflict.suffix}")
+                conflict.parent.mkdir(parents=True, exist_ok=True)
+                if conflict.exists():
+                    if conflict.read_bytes() != source.read_bytes():
+                        raise FileExistsError(f"迁移备份已有不同内容：{conflict}")
+                    source.unlink()
+                else:
+                    source.replace(conflict)
+                continue
             source.unlink()
         else:
             source.replace(target)

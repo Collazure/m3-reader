@@ -30,3 +30,19 @@ def test_story_migration_updates_files_and_manifest(tmp_path):
     assert (root / "主线/第01章 黑暗时代/0002.txt").is_file()
     assert json.loads((root / "_manifest.json").read_text(encoding="utf-8"))["items"]["one"]["folder"] == "特殊/四月辑录/断罪者的挑战状"
     assert migrate_story_layout(root) == 0
+
+
+def test_story_migration_preserves_conflicting_content(tmp_path):
+    root = tmp_path / "avg"
+    source = root / "特殊 荷谟伊智境/关卡文本.txt"
+    target = root / "特殊/荷谟伊智境/关卡文本.txt"
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    source.write_text("旧内容", encoding="utf-8")
+    target.write_text("新内容", encoding="utf-8")
+    assert migrate_story_layout(root) == 1
+    assert target.read_text(encoding="utf-8") == "新内容"
+    backups = list((root / "_migration_conflicts").rglob("*.txt"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "旧内容"
+    assert migrate_story_layout(root) == 0

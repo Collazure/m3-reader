@@ -1,6 +1,6 @@
 # 已知信息与待验证事项
 
-文档版本：1.7；最近核实：2026-10-28。
+文档版本：1.8；最近核实：2026-11-02。
 维护规则：记录证据位置和核实日期；实现后更新状态，区分现状、设计和待验证事项。
 
 ## 已核实事实
@@ -8,7 +8,7 @@
 | 编号 | 信息 | 证据 / 影响 |
 | --- | --- | --- |
 | K01 | 工程代码由 Git 仓库管理（2026-10-25 于 m3-reader/ 初始化）；resources/ 采集资料、workspace/ 运行数据与 bin/、installpacks/ 产物被忽略 | .gitignore；内容历史依赖 Git 提交，资源可重新采集 |
-| K02 | 当前源码版本为 2.10.8；标签筛选增加批量操作，结果页关闭释放文档，命中记录紧凑化 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、library.py；2026-10-29 |
+| K02 | 当前源码版本为 2.10.9；GUI 增加本地书签，迁移冲突保留旧文件 | prts_tool/__init__.py、pyproject.toml、CHANGELOG.md、gui.py、library.py；2026-10-29 |
 | K54 | GUI “显示全部”临时忽略标签且保留已选状态，“清空已选”一次性复位；关闭检索页清空 HTML 与命中列表 | prts_tool/gui.py、tests/test_gui_layout.py；2026-10-29 |
 | K03 | CLI 使用 click，采集器按注册表发现；GUI/TUI 共用资源、搜索、历史和意见服务 | prts_tool/cli.py、registry.py、library.py、history.py、jobs.py |
 | K04 | 支持 changed / missing / force 和 dry-run | registry.py、cli.py；GUI/TUI 已沿用这些模式 |
@@ -75,4 +75,3 @@
 | V07 | 目录迁移可能影响外部脚本所写的旧路径 | 已改默认 CLI、terra 定位和 OCR 链接；外部自写脚本需按 resources/README.md 调整 |
 
 本文件记录工程事实；采集运行产生的正文变更由内容历史管理；工程发布变化写入根目录 CHANGELOG.md。
-

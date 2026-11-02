@@ -26,6 +26,7 @@ HISTORY_DIR = WORKSPACE_DIR / "history"
 NOTES_FILE = WORKSPACE_DIR / "notes.json"
 OPINIONS_FILE = WORKSPACE_DIR / "更新意见.md"
 READING_FILE = WORKSPACE_DIR / "reading.json"
+BOOKMARKS_FILE = WORKSPACE_DIR / "bookmarks.json"
 APP_ICON_FILE = Path(getattr(sys, "_MEIPASS", PROJECT_DIR)) / "assets" / "icon.png"
 
 
